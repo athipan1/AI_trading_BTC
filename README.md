@@ -18,7 +18,7 @@ PaperBroker
 Portfolio snapshot / Backtest metrics
 ```
 
-The strategy may emit `BUY`, `HOLD`, or `EXIT`. `EXIT` only closes an existing long paper position. It never opens a short.
+The strategy may emit `BUY`, `HOLD`, or `EXIT`. `EXIT` only closes an existing long position. It never opens a short.
 
 ## Quick start
 
@@ -85,7 +85,7 @@ python scripts/run_binance_testnet_order.py \
   --confirm BINANCE_TESTNET
 ```
 
-The Testnet lane has a hard 25 USDT notional cap by default and writes only sanitized order output.
+The Testnet entry lane has a hard 25 USDT notional cap by default and writes only sanitized order output.
 
 ### Termux / Android
 
@@ -124,9 +124,9 @@ A filled Testnet BUY is stored in `state/binance-testnet-positions.json` and can
 - TP
 - SL
 - Binance open-order count
-- number of positions currently tracked by the alert monitor
+- number of positions currently tracked by the monitor
 
-Default alert thresholds are:
+For manual Testnet orders, default alert thresholds are:
 
 ```bash
 export BTC_TESTNET_TP_PCT=2
@@ -135,7 +135,7 @@ export BTC_TESTNET_SL_PCT=1
 
 They can also be overridden per order with `--tp-pct` and `--sl-pct`.
 
-Start the TP/SL monitor once:
+Start the notification-only TP/SL monitor once:
 
 ```bash
 python scripts/monitor_binance_testnet_positions.py
@@ -147,9 +147,82 @@ Or keep it running and check every 30 seconds:
 python scripts/monitor_binance_testnet_positions.py --watch --interval-seconds 30
 ```
 
-When the observed Testnet price reaches TP or SL, the monitor sends one LINE message for that event and stops monitoring that record. Notification delivery is retryable if LINE temporarily fails.
+The standalone monitor only sends alerts. It does not submit exit orders.
 
-**Important:** the TP/SL values in this alert lane are monitoring thresholds only. They do not create protective Binance stop-loss or take-profit orders and do not automatically close the position.
+## Automatic Binance Spot Testnet trading
+
+The automatic loop is long-only and Testnet-only. It performs this flow:
+
+```text
+closed BTC/USDT candle
+        ↓
+EMA / RSI / ATR / Momentum
+        ↓
+BaselineStrategy
+        ↓
+RiskEngine
+        ↓
+BUY / HOLD / EXIT
+        ↓
+Binance Spot Testnet
+        ↓
+LINE notification
+        ↓
+live TP / SL monitoring
+        ↓
+automatic Testnet SELL on TP, SL, or strategy EXIT
+```
+
+The strategy is evaluated only once per **closed** candle. Live TP/SL checks run on every loop iteration. The automatic path allows at most one locally tracked open BTC/USDT position.
+
+Recommended Testnet settings:
+
+```bash
+export BTC_TESTNET_AUTO_ENTRY_NOTIONAL_USDT=10
+export BTC_TESTNET_AUTO_INTERVAL_SECONDS=30
+export BTC_TESTNET_AUTO_CANDLE_LIMIT=120
+export BTC_TESTNET_AUTO_REQUIRE_LINE=true
+export BINANCE_TESTNET_MAX_NOTIONAL_USDT=25
+export BINANCE_TESTNET_MAX_EXIT_NOTIONAL_USDT=100
+```
+
+Run one automatic decision cycle:
+
+```bash
+python scripts/run_binance_testnet_auto.py \
+  --symbol BTC/USDT \
+  --timeframe 1h \
+  --confirm BINANCE_TESTNET_AUTO
+```
+
+Run continuously:
+
+```bash
+python scripts/run_binance_testnet_auto.py \
+  --symbol BTC/USDT \
+  --timeframe 1h \
+  --watch \
+  --interval-seconds 30 \
+  --confirm BINANCE_TESTNET_AUTO
+```
+
+The automatic entry notional is capped three times: the configured auto-entry amount, `RiskEngine` sizing, and `BINANCE_TESTNET_MAX_NOTIONAL_USDT`.
+
+### Automatic execution safety
+
+- Only closed candles are used for strategy decisions.
+- The same candle cannot submit the same BUY repeatedly.
+- Only one tracked open position is allowed per BTC/USDT.
+- TP/SL exits sell only the tracked quantity, rounded down to the exchange lot step.
+- Automatic exits also have a separate Testnet exit-notional cap.
+- Before an order is submitted, local state is written as `SUBMITTING`.
+- If the process dies or the order result becomes uncertain, automation halts instead of blindly retrying.
+- An unfinished `SUBMITTING`, `ACKED`, or `UNCERTAIN` attempt requires manual Binance Testnet reconciliation before automation can resume.
+- LINE is required by default for automatic mode so Testnet orders are not opened silently.
+- LINE delivery failure after a confirmed order never triggers a blind order retry.
+- Binance mainnet endpoints are still not implemented.
+
+Runtime state is stored under ignored `state/` files and therefore persists locally on the Termux device but is not committed to Git.
 
 ## Binance Spot Testnet GitHub Action
 
@@ -182,12 +255,11 @@ To submit a virtual market order:
 - Public market-data reads need no exchange API key.
 - No Binance mainnet/private production endpoint is implemented.
 - The Testnet execution module fail-closes unless the host is `testnet.binance.vision`.
-- A manual confirmation token is required before the Testnet workflow can place an order.
-- A BUY requires a valid stop-loss and take-profit in the normal paper strategy path.
-- Default paper risk budget is 0.5% of current equity per trade, capped again by maximum position notional.
-- Repeated BUY signals cannot stack a second position in the same paper broker.
+- Manual order submission requires an explicit confirmation token.
+- Automatic Testnet trading requires the separate `BINANCE_TESTNET_AUTO` confirmation token at startup.
+- Default risk budget is 0.5% of current equity per trade, capped again by maximum position notional.
 - Backtests include configurable fees and slippage and execute strategy decisions on the next candle open.
-- LINE credentials are optional and never committed; order execution is not blindly retried if post-order notification fails.
+- LINE credentials are never committed.
 
 ## API
 
@@ -195,4 +267,4 @@ To submit a virtual market order:
 - `GET /portfolio`
 - `POST /paper/cycle`
 
-The in-memory paper portfolio resets when the service restarts. Binance Spot Testnet execution remains an integration-testing lane and is not yet connected to autonomous strategy decisions.
+The in-memory paper portfolio resets when the service restarts. Binance Spot Testnet automatic execution uses separate local state files and remains isolated from Binance mainnet.
