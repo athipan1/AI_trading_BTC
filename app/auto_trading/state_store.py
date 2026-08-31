@@ -46,6 +46,13 @@ class AutoTradeStateStore:
         temp.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
         os.replace(temp, self.path)
 
+    def halt(self, reason: str) -> None:
+        state = self.load()
+        state["halted"] = True
+        state["halt_reason"] = reason
+        state["halted_at"] = self._now()
+        self.save(state)
+
     def assert_ready(self) -> dict[str, Any]:
         state = self.load()
         if state.get("halted"):
@@ -56,9 +63,7 @@ class AutoTradeStateStore:
                 "unfinished order attempt requires manual Binance Testnet reconciliation: "
                 f"{attempt.get('action')} {attempt.get('symbol')} status={attempt.get('status')}"
             )
-            state["halted"] = True
-            state["halt_reason"] = reason
-            self.save(state)
+            self.halt(reason)
             raise AutoTradingHalted(reason)
         return state
 
@@ -115,6 +120,7 @@ class AutoTradeStateStore:
         state["halt_reason"] = (
             "order result is uncertain; reconcile Binance Spot Testnet before restarting automation"
         )
+        state["halted_at"] = self._now()
         self.save(state)
 
     def finalize_order_attempt(self) -> None:
