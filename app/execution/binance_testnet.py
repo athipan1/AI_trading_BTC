@@ -61,7 +61,7 @@ class BinanceTestnetBroker:
         *,
         params: dict[str, object] | None = None,
         signed: bool = False,
-    ) -> dict:
+    ) -> dict | list:
         url = f"{self.base_url}{path}"
         self._assert_testnet_url(url)
         request_params = dict(params or {})
@@ -102,12 +102,14 @@ class BinanceTestnetBroker:
             raise RuntimeError(
                 f"Binance Testnet API error HTTP {response.status_code}: code={code} msg={message}"
             )
-        if not isinstance(payload, dict):
+        if not isinstance(payload, (dict, list)):
             raise RuntimeError("Binance Testnet returned an unexpected response shape")
         return payload
 
     def _server_time_ms(self) -> int:
         payload = self._request("GET", "/api/v3/time")
+        if not isinstance(payload, dict):
+            raise RuntimeError("Binance Testnet returned invalid server time payload")
         server_time = payload.get("serverTime")
         if not isinstance(server_time, int) or server_time <= 0:
             raise RuntimeError("Binance Testnet did not return a valid server time")
@@ -120,6 +122,8 @@ class BinanceTestnetBroker:
             "/api/v3/exchangeInfo",
             params={"symbol": exchange_symbol},
         )
+        if not isinstance(payload, dict):
+            raise RuntimeError("Binance Testnet returned invalid exchange metadata")
         symbols = payload.get("symbols")
         if not isinstance(symbols, list) or len(symbols) != 1 or not isinstance(symbols[0], dict):
             raise ValueError(f"symbol is not available on Binance Spot Testnet: {symbol}")
@@ -134,19 +138,28 @@ class BinanceTestnetBroker:
 
     def _account(self) -> dict:
         account = self._request("GET", "/api/v3/account", signed=True)
+        if not isinstance(account, dict):
+            raise RuntimeError("Binance Testnet returned invalid account payload")
         if account.get("canTrade") is False:
             raise ValueError("Binance Testnet account is not allowed to trade")
         return account
 
     @staticmethod
-    def _free_balance(account: dict, asset: str) -> Decimal:
+    def _asset_balance(account: dict, asset: str) -> tuple[Decimal, Decimal]:
         balances = account.get("balances")
         if not isinstance(balances, list):
             raise RuntimeError("Binance Testnet account response is missing balances")
         for balance in balances:
             if isinstance(balance, dict) and balance.get("asset") == asset:
-                return Decimal(str(balance.get("free", "0")))
-        return Decimal("0")
+                free = Decimal(str(balance.get("free", "0")))
+                locked = Decimal(str(balance.get("locked", "0")))
+                return free, locked
+        return Decimal("0"), Decimal("0")
+
+    @classmethod
+    def _free_balance(cls, account: dict, asset: str) -> Decimal:
+        free, _ = cls._asset_balance(account, asset)
+        return free
 
     def _book_price(self, exchange_symbol: str, side: str) -> Decimal:
         ticker = self._request(
@@ -154,11 +167,56 @@ class BinanceTestnetBroker:
             "/api/v3/ticker/bookTicker",
             params={"symbol": exchange_symbol},
         )
+        if not isinstance(ticker, dict):
+            raise RuntimeError("Binance Testnet returned invalid book ticker payload")
         field = "askPrice" if side == "buy" else "bidPrice"
         price = Decimal(str(ticker.get(field, "0")))
         if price <= 0:
             raise RuntimeError("Binance Testnet ticker did not return a usable price")
         return price
+
+    def current_price(self, symbol: str) -> float:
+        exchange_symbol, _, _ = self._symbol_parts(symbol)
+        ticker = self._request(
+            "GET",
+            "/api/v3/ticker/price",
+            params={"symbol": exchange_symbol},
+        )
+        if not isinstance(ticker, dict):
+            raise RuntimeError("Binance Testnet returned invalid price ticker payload")
+        price = Decimal(str(ticker.get("price", "0")))
+        if price <= 0:
+            raise RuntimeError("Binance Testnet ticker did not return a usable price")
+        return float(price)
+
+    def account_snapshot(self, symbol: str) -> dict:
+        exchange_symbol, base, quote = self._symbol_parts(symbol)
+        account = self._account()
+        quote_free, quote_locked = self._asset_balance(account, quote)
+        base_free, base_locked = self._asset_balance(account, base)
+        price = Decimal(str(self.current_price(symbol)))
+        open_orders = self._request(
+            "GET",
+            "/api/v3/openOrders",
+            params={"symbol": exchange_symbol},
+            signed=True,
+        )
+        if not isinstance(open_orders, list):
+            raise RuntimeError("Binance Testnet returned invalid open-orders payload")
+        quote_total = quote_free + quote_locked
+        base_total = base_free + base_locked
+        estimated_value = quote_total + (base_total * price)
+        return {
+            "symbol": symbol.upper(),
+            "quote_asset": quote,
+            "base_asset": base,
+            "quote_free": float(quote_free),
+            "quote_total": float(quote_total),
+            "base_total": float(base_total),
+            "reference_price": float(price),
+            "estimated_portfolio_value_quote": float(estimated_value),
+            "open_orders_count": len(open_orders),
+        }
 
     @staticmethod
     def _min_notional(market: dict) -> Decimal | None:
@@ -270,6 +328,8 @@ class BinanceTestnetBroker:
             params=order_params,
             signed=True,
         )
+        if not isinstance(order, dict):
+            raise RuntimeError("Binance Testnet returned invalid order payload")
         order_id = order.get("orderId")
         executed_qty = Decimal(str(order.get("executedQty", "0")))
         quote_qty = Decimal(str(order.get("cummulativeQuoteQty", "0")))
