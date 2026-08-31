@@ -7,7 +7,13 @@ from app.strategies.baseline import BaselineStrategy
 
 
 class TradingCycle:
-    def __init__(self, market_data, strategy: BaselineStrategy, risk: RiskEngine, broker: PaperBroker) -> None:
+    def __init__(
+        self,
+        market_data,
+        strategy: BaselineStrategy,
+        risk: RiskEngine,
+        broker: PaperBroker,
+    ) -> None:
         self.market_data = market_data
         self.strategy = strategy
         self.risk = risk

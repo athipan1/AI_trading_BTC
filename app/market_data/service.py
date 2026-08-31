@@ -48,6 +48,6 @@ class MarketDataService:
         ]
         if len(candles) < 60:
             raise MarketDataError(f"insufficient market data: received {len(candles)} candles")
-        if any(a.timestamp_ms >= b.timestamp_ms for a, b in zip(candles, candles[1:])):
+        if any(a.timestamp_ms >= b.timestamp_ms for a, b in zip(candles, candles[1:], strict=True)):
             raise MarketDataError("market data timestamps are not strictly increasing")
         return candles

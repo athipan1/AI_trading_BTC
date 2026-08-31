@@ -20,7 +20,8 @@ def signal(rr: float = 2.0) -> TradeSignal:
 
 
 def test_risk_caps_loss_at_half_percent() -> None:
-    decision = RiskEngine(risk_per_trade_pct=0.005, max_position_notional_pct=1).evaluate_entry(signal(), 10_000)
+    engine = RiskEngine(risk_per_trade_pct=0.005, max_position_notional_pct=1)
+    decision = engine.evaluate_entry(signal(), 10_000)
     assert decision.approved
     assert decision.max_loss <= 50.000001
 

@@ -20,7 +20,14 @@ class BacktestResult:
 
 
 class BacktestEngine:
-    def __init__(self, strategy, risk: RiskEngine, starting_balance: float, fee_rate: float, slippage_bps: float) -> None:
+    def __init__(
+        self,
+        strategy,
+        risk: RiskEngine,
+        starting_balance: float,
+        fee_rate: float,
+        slippage_bps: float,
+    ) -> None:
         self.strategy = strategy
         self.risk = risk
         self.starting_balance = starting_balance
