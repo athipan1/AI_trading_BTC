@@ -8,7 +8,7 @@ from app.execution.binance_testnet import BinanceTestnetBroker, BinanceTestnetSa
 
 
 class FakeResponse:
-    def __init__(self, payload: dict, status_code: int = 200):
+    def __init__(self, payload: dict | list, status_code: int = 200):
         self._payload = payload
         self.status_code = status_code
         self.ok = 200 <= status_code < 300
@@ -58,8 +58,8 @@ class FakeSession:
                 {
                     "canTrade": True,
                     "balances": [
-                        {"asset": "USDT", "free": "1000.00000000"},
-                        {"asset": "BTC", "free": "1.00000000"},
+                        {"asset": "USDT", "free": "1000.00000000", "locked": "0.00000000"},
+                        {"asset": "BTC", "free": "0.10000000", "locked": "0.00000000"},
                     ],
                 }
             )
@@ -71,6 +71,10 @@ class FakeSession:
                     "askPrice": "50010.00",
                 }
             )
+        if path == "/api/v3/ticker/price":
+            return FakeResponse({"symbol": "BTCUSDT", "price": "50000.00"})
+        if path == "/api/v3/openOrders":
+            return FakeResponse([{"symbol": "BTCUSDT", "orderId": 999}])
         if path == "/api/v3/order":
             return FakeResponse(
                 {
@@ -167,3 +171,16 @@ def test_market_buy_rejects_below_exchange_min_notional() -> None:
         broker.place_market_order("BTC/USDT", "buy", 4.99)
 
     assert not any(urlparse(call[1]).path == "/api/v3/order" for call in fake.calls)
+
+
+def test_account_snapshot_reports_balance_value_and_open_orders() -> None:
+    fake = FakeSession()
+    broker = BinanceTestnetBroker("key", "secret", session=fake)
+
+    snapshot = broker.account_snapshot("BTC/USDT")
+
+    assert snapshot["quote_total"] == 1000.0
+    assert snapshot["base_total"] == 0.1
+    assert snapshot["reference_price"] == 50_000.0
+    assert snapshot["estimated_portfolio_value_quote"] == 6000.0
+    assert snapshot["open_orders_count"] == 1
