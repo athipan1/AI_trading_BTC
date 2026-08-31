@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from decimal import Decimal, ROUND_DOWN
+from decimal import ROUND_DOWN, Decimal
 from urllib.parse import urlencode, urlparse
 
 import requests
