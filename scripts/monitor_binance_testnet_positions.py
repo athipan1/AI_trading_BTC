@@ -18,7 +18,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_services(args: argparse.Namespace) -> tuple[BinanceTestnetBroker, LineMessagingNotifier, PositionStore]:
+def build_services(
+    args: argparse.Namespace,
+) -> tuple[BinanceTestnetBroker, LineMessagingNotifier, PositionStore]:
     api_key = os.environ.get("BINANCE_TESTNET_API_KEY", "")
     api_secret = os.environ.get("BINANCE_TESTNET_API_SECRET", "")
     line_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
