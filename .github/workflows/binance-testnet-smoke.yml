@@ -1,0 +1,70 @@
+name: Binance Spot Testnet Smoke
+
+on:
+  push:
+    branches:
+      - test/binance-testnet-smoke
+
+permissions:
+  contents: read
+
+concurrency:
+  group: binance-spot-testnet-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BINANCE_TESTNET_API_KEY: ${{ secrets.BINANCE_TESTNET_API_KEY }}
+      BINANCE_TESTNET_API_SECRET: ${{ secrets.BINANCE_TESTNET_API_SECRET }}
+      BINANCE_TESTNET_MAX_NOTIONAL_USDT: "25"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate Testnet secrets
+        shell: bash
+        run: |
+          if [ -z "$BINANCE_TESTNET_API_KEY" ] || [ -z "$BINANCE_TESTNET_API_SECRET" ]; then
+            echo "Missing BINANCE_TESTNET_API_KEY or BINANCE_TESTNET_API_SECRET repository secrets."
+            exit 1
+          fi
+
+      - name: Preflight Binance Spot Testnet
+        run: |
+          python scripts/run_binance_testnet_order.py \
+            --mode preflight \
+            --symbol "BTC/USDT" \
+            --side buy \
+            --notional-usdt "10" \
+            --confirm ""
+
+      - name: Place 10 USDT Testnet market BUY
+        run: |
+          python scripts/run_binance_testnet_order.py \
+            --mode place_order \
+            --symbol "BTC/USDT" \
+            --side buy \
+            --notional-usdt "10" \
+            --confirm "BINANCE_TESTNET"
+
+      - name: Upload sanitized Testnet report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: binance-testnet-smoke-report
+          path: reports/binance-testnet-order.json
+          if-no-files-found: ignore
+          retention-days: 7
