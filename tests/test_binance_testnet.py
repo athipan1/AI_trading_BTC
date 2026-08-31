@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from urllib.parse import urlparse
 
 import pytest
@@ -18,6 +19,8 @@ class FakeResponse:
 
 
 class FakeSession:
+    SERVER_TIME = 1_788_187_701_419
+
     def __init__(self):
         self.calls = []
 
@@ -28,7 +31,7 @@ class FakeSession:
         path = urlparse(url).path
 
         if path == "/api/v3/time":
-            return FakeResponse({"serverTime": 1_788_187_701_419})
+            return FakeResponse({"serverTime": self.SERVER_TIME})
         if path == "/api/v3/exchangeInfo":
             return FakeResponse(
                 {
@@ -75,13 +78,49 @@ class FakeSession:
             return FakeResponse({"symbol": "BTCUSDT", "price": "50000.00"})
         if path == "/api/v3/openOrders":
             return FakeResponse([{"symbol": "BTCUSDT", "orderId": 999}])
+        if path == "/api/v3/klines":
+            interval_ms = 3_600_000
+            first_open = self.SERVER_TIME - (61 * interval_ms)
+            rows = []
+            for index in range(62):
+                open_time = first_open + index * interval_ms
+                close_time = open_time + interval_ms - 1
+                rows.append(
+                    [
+                        open_time,
+                        "50000.00",
+                        "50100.00",
+                        "49900.00",
+                        "50010.00",
+                        "12.0",
+                        close_time,
+                    ]
+                )
+            return FakeResponse(rows)
         if path == "/api/v3/order":
+            if params.get("side") == "SELL":
+                quantity = Decimal(str(params["quantity"]))
+                quote_qty = quantity * Decimal("49990")
+                return FakeResponse(
+                    {
+                        "symbol": "BTCUSDT",
+                        "orderId": 222222222,
+                        "clientOrderId": "exit-1",
+                        "transactTime": self.SERVER_TIME,
+                        "executedQty": format(quantity, "f"),
+                        "cummulativeQuoteQty": format(quote_qty, "f"),
+                        "status": "FILLED",
+                        "type": "MARKET",
+                        "side": "SELL",
+                        "fills": [],
+                    }
+                )
             return FakeResponse(
                 {
                     "symbol": "BTCUSDT",
                     "orderId": 123456789,
                     "clientOrderId": "client-1",
-                    "transactTime": 1_788_187_701_500,
+                    "transactTime": self.SERVER_TIME,
                     "price": "0.00000000",
                     "origQty": "0.00019996",
                     "executedQty": "0.00019996",
@@ -117,7 +156,7 @@ def test_preflight_uses_signed_testnet_account_request() -> None:
     account_call = next(call for call in fake.calls if urlparse(call[1]).path == "/api/v3/account")
     assert account_call[3]["X-MBX-APIKEY"] == "key"
     assert "signature" in account_call[2]
-    assert account_call[2]["timestamp"] == 1_788_187_701_419
+    assert account_call[2]["timestamp"] == FakeSession.SERVER_TIME
 
 
 def test_hard_notional_cap_fails_before_order_submission() -> None:
@@ -184,3 +223,30 @@ def test_account_snapshot_reports_balance_value_and_open_orders() -> None:
     assert snapshot["reference_price"] == 50_000.0
     assert snapshot["estimated_portfolio_value_quote"] == 6000.0
     assert snapshot["open_orders_count"] == 1
+
+
+def test_fetch_closed_candles_excludes_current_open_candle() -> None:
+    fake = FakeSession()
+    broker = BinanceTestnetBroker("key", "secret", session=fake)
+
+    candles = broker.fetch_closed_candles("BTC/USDT", interval="1h", limit=60)
+
+    assert len(candles) == 60
+    assert candles[-1].timestamp_ms < FakeSession.SERVER_TIME
+    assert candles[-1].close == 50_010.0
+
+
+def test_exact_quantity_sell_closes_only_requested_tracked_lot() -> None:
+    fake = FakeSession()
+    broker = BinanceTestnetBroker("key", "secret", session=fake)
+
+    result = broker.place_market_sell_quantity("BTC/USDT", 0.0002)
+
+    assert result["order_id"] == 222222222
+    assert result["side"] == "sell"
+    order_call = [
+        call
+        for call in fake.calls
+        if urlparse(call[1]).path == "/api/v3/order" and call[2].get("side") == "SELL"
+    ][0]
+    assert Decimal(str(order_call[2]["quantity"])) == Decimal("0.0002")
