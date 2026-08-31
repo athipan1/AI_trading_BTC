@@ -39,7 +39,9 @@ concurrency:
 
 jobs:
   testnet-order:
-    runs-on: ubuntu-latest
+    # Binance returned HTTP 451 from GitHub-hosted eastus runners.
+    # Route exchange traffic only through an explicitly registered runner.
+    runs-on: [self-hosted, linux, binance-testnet]
     timeout-minutes: 10
     env:
       PYTHONPATH: "."
@@ -63,6 +65,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Verify Binance Testnet network access
+        run: python scripts/check_binance_testnet_access.py
 
       - name: Validate Testnet secrets
         shell: bash
