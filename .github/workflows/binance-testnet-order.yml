@@ -1,0 +1,91 @@
+name: Binance Spot Testnet Order
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Preflight only, or place a virtual Spot Testnet order"
+        required: true
+        default: preflight
+        type: choice
+        options:
+          - preflight
+          - place_order
+      side:
+        description: "Order side used only for place_order"
+        required: true
+        default: buy
+        type: choice
+        options:
+          - buy
+          - sell
+      notional_usdt:
+        description: "Virtual USDT notional. Hard-capped by BINANCE_TESTNET_MAX_NOTIONAL_USDT"
+        required: true
+        default: "10"
+        type: string
+      confirmation:
+        description: "Type BINANCE_TESTNET to permit place_order"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: binance-spot-testnet-order
+  cancel-in-progress: false
+
+jobs:
+  testnet-order:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BINANCE_TESTNET_API_KEY: ${{ secrets.BINANCE_TESTNET_API_KEY }}
+      BINANCE_TESTNET_API_SECRET: ${{ secrets.BINANCE_TESTNET_API_SECRET }}
+      BINANCE_TESTNET_MAX_NOTIONAL_USDT: "25"
+      INPUT_MODE: ${{ inputs.mode }}
+      INPUT_SIDE: ${{ inputs.side }}
+      INPUT_NOTIONAL_USDT: ${{ inputs.notional_usdt }}
+      INPUT_CONFIRMATION: ${{ inputs.confirmation }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate Testnet secrets
+        shell: bash
+        run: |
+          if [ -z "$BINANCE_TESTNET_API_KEY" ] || [ -z "$BINANCE_TESTNET_API_SECRET" ]; then
+            echo "Missing BINANCE_TESTNET_API_KEY or BINANCE_TESTNET_API_SECRET repository secrets."
+            exit 1
+          fi
+
+      - name: Run Binance Spot Testnet command
+        shell: bash
+        run: |
+          python scripts/run_binance_testnet_order.py \
+            --mode "$INPUT_MODE" \
+            --symbol "BTC/USDT" \
+            --side "$INPUT_SIDE" \
+            --notional-usdt "$INPUT_NOTIONAL_USDT" \
+            --confirm "$INPUT_CONFIRMATION"
+
+      - name: Upload sanitized Testnet report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: binance-testnet-order-report
+          path: reports/binance-testnet-order.json
+          if-no-files-found: ignore
+          retention-days: 7
