@@ -330,7 +330,9 @@ class TestnetAutoTrader:
             float(risk.notional),
             self.broker.max_order_notional_usdt,
         )
-        minimum_notional = self.broker.minimum_notional(self.symbol)
+        market = self.broker._load_market(self.symbol)
+        market_minimum = self.broker._min_notional(market)
+        minimum_notional = float(market_minimum) if market_minimum is not None else 0.0
         if notional < minimum_notional:
             self.state_store.mark_candle_processed(candle_ms)
             return {
