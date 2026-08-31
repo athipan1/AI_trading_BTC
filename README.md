@@ -1,22 +1,24 @@
 # AI Trading BTC
 
-Production-minded BTC trading research and paper-trading system.
+A production-minded BTC research and paper-trading baseline. Phase 1 deliberately contains **no live-order path**.
 
-## Phase 1
+## Phase 1 flow
 
-Phase 1 provides a safe baseline for BTC/USDT:
+```text
+CCXT public OHLCV
+      ↓
+EMA / RSI / ATR / Momentum
+      ↓
+Baseline long-only strategy
+      ↓
+Risk Engine (≤0.5% account risk/trade by default)
+      ↓
+PaperBroker
+      ↓
+Portfolio snapshot / Backtest metrics
+```
 
-- Exchange market-data adapter via CCXT
-- Technical features: EMA, RSI, ATR and momentum
-- Baseline regime-aware strategy
-- Risk sizing with a default maximum 0.5% account risk per trade
-- In-memory paper execution only
-- Backtest runner with fees and slippage
-- FastAPI health and paper-cycle endpoints
-- Pytest, Ruff and GitHub Actions CI
-- Docker support
-
-> Live order submission is intentionally not implemented in Phase 1.
+The strategy may emit `BUY`, `HOLD`, or `EXIT`. `EXIT` only closes an existing long paper position. It never opens a short.
 
 ## Quick start
 
@@ -24,28 +26,49 @@ Phase 1 provides a safe baseline for BTC/USDT:
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
 pytest
 uvicorn app.api.main:app --reload
 ```
 
-Run a paper cycle using public market data:
+Health check:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Run one paper cycle using public market data:
 
 ```bash
 python scripts/run_paper_trading.py
 ```
 
-Run a backtest:
+Backtest:
 
 ```bash
 python scripts/run_backtest.py --exchange binance --symbol BTC/USDT --timeframe 1h --limit 1000
 ```
 
+Download OHLCV:
+
+```bash
+python scripts/download_market_data.py --limit 1000 --output data/btc_usdt_1h.csv
+```
+
 ## Safety defaults
 
-- `TRADING_MODE=paper` is required.
-- No exchange API key is required for public market data.
-- The execution module refuses non-paper orders.
-- Position sizing is derived from stop distance and account risk budget.
-- Invalid or missing stop-loss values are rejected.
+- `TRADING_MODE=paper` is the only accepted Phase 1 mode.
+- Public market-data reads need no exchange API key.
+- There is no CCXT private-order call anywhere in Phase 1.
+- A BUY requires a valid stop-loss and take-profit.
+- Default risk budget is 0.5% of current paper equity per trade, capped again by maximum position notional.
+- Repeated BUY signals cannot stack a second position in the same paper broker.
+- Backtests include configurable fees and slippage and execute strategy decisions on the next candle open.
 
-See `.env.example` for configuration.
+## API
+
+- `GET /health`
+- `GET /portfolio`
+- `POST /paper/cycle`
+
+The in-memory paper portfolio resets when the service restarts. Persistent storage and real exchange execution belong to later phases after the baseline is validated.
