@@ -1,0 +1,130 @@
+from __future__ import annotations
+
+from typing import Any
+
+import requests
+
+
+class LineMessagingError(RuntimeError):
+    """Raised when LINE Messaging API rejects a notification request."""
+
+
+class LineMessagingNotifier:
+    API_URL = "https://api.line.me/v2/bot/message/push"
+
+    def __init__(
+        self,
+        channel_access_token: str,
+        target_id: str,
+        session: requests.Session | None = None,
+    ) -> None:
+        if not channel_access_token.strip():
+            raise ValueError("LINE channel access token is required")
+        if not target_id.strip():
+            raise ValueError("LINE target ID is required")
+        self.channel_access_token = channel_access_token.strip()
+        self.target_id = target_id.strip()
+        self.session = session or requests.Session()
+
+    def send_text(self, text: str) -> dict[str, Any]:
+        message = text.strip()
+        if not message:
+            raise ValueError("LINE message must not be empty")
+        if len(message) > 5000:
+            raise ValueError("LINE text message exceeds 5000 characters")
+
+        try:
+            response = self.session.post(
+                self.API_URL,
+                headers={
+                    "Authorization": f"Bearer {self.channel_access_token}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "to": self.target_id,
+                    "messages": [{"type": "text", "text": message}],
+                },
+                timeout=10,
+            )
+        except requests.RequestException as exc:
+            raise LineMessagingError(f"LINE network error: {exc.__class__.__name__}") from exc
+
+        if not response.ok:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = {}
+            detail = payload.get("message") if isinstance(payload, dict) else None
+            raise LineMessagingError(
+                f"LINE Messaging API error HTTP {response.status_code}: {detail or 'unknown error'}"
+            )
+        return {"sent": True, "status_code": response.status_code}
+
+
+def format_open_order_message(
+    *,
+    symbol: str,
+    order_id: str,
+    side: str,
+    account_balance_usdt: float,
+    estimated_portfolio_value_usdt: float,
+    entry_price: float,
+    lot: float,
+    take_profit: float,
+    stop_loss: float,
+    binance_open_orders: int,
+    tracked_positions: int,
+) -> str:
+    return "\n".join(
+        [
+            "Trading BTC",
+            f"🟢 เปิดออเดอร์ {side.upper()}",
+            f"คู่: {symbol}",
+            f"Order ID: {order_id}",
+            f"ยอด USDT ในบัญชี: {account_balance_usdt:,.2f}",
+            f"มูลค่าพอร์ต BTC+USDT โดยประมาณ: {estimated_portfolio_value_usdt:,.2f} USDT",
+            f"ราคาเข้า: {entry_price:,.2f} USDT",
+            f"Lot: {lot:.8f} BTC",
+            f"TP: {take_profit:,.2f} USDT",
+            f"SL: {stop_loss:,.2f} USDT",
+            f"Open orders ใน Binance: {binance_open_orders}",
+            f"ออเดอร์ที่ระบบกำลังติดตาม: {tracked_positions}",
+        ]
+    )
+
+
+def format_level_hit_message(
+    *,
+    event: str,
+    symbol: str,
+    order_id: str,
+    account_balance_usdt: float,
+    estimated_portfolio_value_usdt: float,
+    entry_price: float,
+    hit_price: float,
+    lot: float,
+    take_profit: float,
+    stop_loss: float,
+    binance_open_orders: int,
+    tracked_positions: int,
+) -> str:
+    normalized = event.upper()
+    marker = "🎯" if normalized == "TP_HIT" else "🛑"
+    label = "ถึง TP" if normalized == "TP_HIT" else "ถึง SL"
+    return "\n".join(
+        [
+            "Trading BTC",
+            f"{marker} {label}",
+            f"คู่: {symbol}",
+            f"Order ID: {order_id}",
+            f"ยอด USDT ในบัญชี: {account_balance_usdt:,.2f}",
+            f"มูลค่าพอร์ต BTC+USDT โดยประมาณ: {estimated_portfolio_value_usdt:,.2f} USDT",
+            f"ราคาเข้า: {entry_price:,.2f} USDT",
+            f"ราคาที่ตรวจพบ: {hit_price:,.2f} USDT",
+            f"Lot: {lot:.8f} BTC",
+            f"TP: {take_profit:,.2f} USDT",
+            f"SL: {stop_loss:,.2f} USDT",
+            f"Open orders ใน Binance: {binance_open_orders}",
+            f"ออเดอร์ที่ระบบกำลังติดตาม: {tracked_positions}",
+        ]
+    )
