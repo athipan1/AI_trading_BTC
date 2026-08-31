@@ -7,6 +7,8 @@ from urllib.parse import urlencode, urlparse
 
 import requests
 
+from app.models import Candle
+
 
 class BinanceTestnetSafetyError(RuntimeError):
     """Raised when an execution target is not provably Binance Spot Testnet."""
@@ -15,6 +17,15 @@ class BinanceTestnetSafetyError(RuntimeError):
 class BinanceTestnetBroker:
     TESTNET_BASE_URL = "https://testnet.binance.vision"
     ALLOWED_SPOT_TESTNET_HOST = "testnet.binance.vision"
+    INTERVAL_MS = {
+        "1m": 60_000,
+        "5m": 300_000,
+        "15m": 900_000,
+        "30m": 1_800_000,
+        "1h": 3_600_000,
+        "4h": 14_400_000,
+        "1d": 86_400_000,
+    }
 
     def __init__(
         self,
@@ -23,6 +34,7 @@ class BinanceTestnetBroker:
         max_order_notional_usdt: float = 25.0,
         session: requests.Session | None = None,
         base_url: str = TESTNET_BASE_URL,
+        max_exit_notional_usdt: float | None = None,
     ) -> None:
         if not api_key.strip() or not api_secret.strip():
             raise ValueError("Binance Testnet API key and secret are required")
@@ -32,6 +44,10 @@ class BinanceTestnetBroker:
         self.api_key = api_key.strip()
         self.api_secret = api_secret.strip()
         self.max_order_notional_usdt = float(max_order_notional_usdt)
+        default_exit_cap = max(self.max_order_notional_usdt * 5, 100.0)
+        self.max_exit_notional_usdt = float(max_exit_notional_usdt or default_exit_cap)
+        if self.max_exit_notional_usdt <= 0:
+            raise ValueError("max_exit_notional_usdt must be positive")
         self.session = session or requests.Session()
         self.base_url = base_url.rstrip("/")
         self._assert_testnet_url(self.base_url)
@@ -189,6 +205,61 @@ class BinanceTestnetBroker:
             raise RuntimeError("Binance Testnet ticker did not return a usable price")
         return float(price)
 
+    def fetch_closed_candles(
+        self,
+        symbol: str,
+        interval: str = "1h",
+        limit: int = 120,
+    ) -> list[Candle]:
+        if interval not in self.INTERVAL_MS:
+            raise ValueError(f"unsupported Binance Testnet interval: {interval}")
+        if not 60 <= limit <= 500:
+            raise ValueError("candle limit must be between 60 and 500")
+
+        exchange_symbol, _, _ = self._symbol_parts(symbol)
+        server_time = self._server_time_ms()
+        payload = self._request(
+            "GET",
+            "/api/v3/klines",
+            params={
+                "symbol": exchange_symbol,
+                "interval": interval,
+                "limit": min(limit + 2, 1000),
+            },
+        )
+        if not isinstance(payload, list):
+            raise RuntimeError("Binance Testnet returned invalid kline payload")
+
+        candles: list[Candle] = []
+        last_close_time: int | None = None
+        for row in payload:
+            if not isinstance(row, list) or len(row) < 7:
+                raise RuntimeError("Binance Testnet returned malformed kline data")
+            close_time = int(row[6])
+            if close_time >= server_time:
+                continue
+            candle = Candle(
+                timestamp_ms=int(row[0]),
+                open=float(row[1]),
+                high=float(row[2]),
+                low=float(row[3]),
+                close=float(row[4]),
+                volume=float(row[5]),
+            )
+            candles.append(candle)
+            last_close_time = close_time
+
+        candles = candles[-limit:]
+        if len(candles) < 60 or last_close_time is None:
+            raise RuntimeError("Binance Testnet returned fewer than 60 closed candles")
+        timestamps = [candle.timestamp_ms for candle in candles]
+        if any(current <= previous for previous, current in zip(timestamps, timestamps[1:], strict=False)):
+            raise RuntimeError("Binance Testnet candles are not strictly increasing")
+        freshness_limit = self.INTERVAL_MS[interval] * 2 + 60_000
+        if server_time - last_close_time > freshness_limit:
+            raise RuntimeError("latest closed Binance Testnet candle is stale")
+        return candles
+
     def account_snapshot(self, symbol: str) -> dict:
         exchange_symbol, base, quote = self._symbol_parts(symbol)
         account = self._account()
@@ -266,6 +337,45 @@ class BinanceTestnetBroker:
             "exchange_status": market.get("status"),
         }
 
+    def _order_result(
+        self,
+        *,
+        order: dict,
+        symbol: str,
+        requested_notional: Decimal | None,
+        estimated_notional: Decimal,
+    ) -> dict:
+        order_id = order.get("orderId")
+        executed_qty = Decimal(str(order.get("executedQty", "0")))
+        quote_qty = Decimal(str(order.get("cummulativeQuoteQty", "0")))
+        average = quote_qty / executed_qty if executed_qty > 0 else None
+        return {
+            "mode": "binance_spot_testnet",
+            "sandbox": True,
+            "host": self.ALLOWED_SPOT_TESTNET_HOST,
+            "order_sent": True,
+            "id": str(order_id) if order_id is not None else None,
+            "order_id": order_id,
+            "client_order_id": order.get("clientOrderId"),
+            "symbol": symbol.upper(),
+            "exchange_symbol": order.get("symbol"),
+            "type": str(order.get("type") or "MARKET").lower(),
+            "side": str(order.get("side") or "").lower(),
+            "status": order.get("status"),
+            "amount": float(executed_qty),
+            "filled": float(executed_qty),
+            "remaining": None,
+            "average": float(average) if average is not None else None,
+            "price": None,
+            "cost": float(quote_qty),
+            "timestamp": order.get("transactTime"),
+            "datetime": None,
+            "requested_notional_usdt": (
+                float(requested_notional) if requested_notional is not None else None
+            ),
+            "estimated_notional_usdt": float(estimated_notional),
+        }
+
     def place_market_order(self, symbol: str, side: str, notional_usdt: float) -> dict:
         normalized_side = side.lower().strip()
         if normalized_side not in {"buy", "sell"}:
@@ -330,32 +440,63 @@ class BinanceTestnetBroker:
         )
         if not isinstance(order, dict):
             raise RuntimeError("Binance Testnet returned invalid order payload")
-        order_id = order.get("orderId")
-        executed_qty = Decimal(str(order.get("executedQty", "0")))
-        quote_qty = Decimal(str(order.get("cummulativeQuoteQty", "0")))
-        average = quote_qty / executed_qty if executed_qty > 0 else None
+        return self._order_result(
+            order=order,
+            symbol=symbol,
+            requested_notional=requested_notional,
+            estimated_notional=estimated_notional,
+        )
 
-        return {
-            "mode": "binance_spot_testnet",
-            "sandbox": True,
-            "host": self.ALLOWED_SPOT_TESTNET_HOST,
-            "order_sent": True,
-            "id": str(order_id) if order_id is not None else None,
-            "order_id": order_id,
-            "client_order_id": order.get("clientOrderId"),
-            "symbol": symbol.upper(),
-            "exchange_symbol": order.get("symbol") or exchange_symbol,
-            "type": str(order.get("type") or "MARKET").lower(),
-            "side": str(order.get("side") or normalized_side).lower(),
-            "status": order.get("status"),
-            "amount": float(executed_qty),
-            "filled": float(executed_qty),
-            "remaining": None,
-            "average": float(average) if average is not None else None,
-            "price": None,
-            "cost": float(quote_qty),
-            "timestamp": order.get("transactTime"),
-            "datetime": None,
-            "requested_notional_usdt": float(requested_notional),
-            "estimated_notional_usdt": float(estimated_notional),
-        }
+    def place_market_sell_quantity(self, symbol: str, quantity: float) -> dict:
+        if quantity <= 0:
+            raise ValueError("sell quantity must be positive")
+        market = self._load_market(symbol)
+        exchange_symbol, base, quote = self._symbol_parts(symbol)
+        if quote != "USDT":
+            raise ValueError("this workflow only allows USDT-quoted spot symbols")
+
+        requested_quantity = Decimal(str(quantity))
+        step = self._market_step_size(market)
+        rounded_quantity = (
+            requested_quantity / step
+        ).to_integral_value(rounding=ROUND_DOWN) * step
+        if rounded_quantity <= 0:
+            raise ValueError("rounded sell quantity is zero")
+        if rounded_quantity > requested_quantity:
+            raise BinanceTestnetSafetyError("rounded sell quantity exceeds tracked quantity")
+
+        account = self._account()
+        available_base = self._free_balance(account, base)
+        if available_base < rounded_quantity:
+            raise ValueError(f"insufficient {base} Testnet balance for tracked exit")
+
+        reference_price = self._book_price(exchange_symbol, "sell")
+        estimated_notional = rounded_quantity * reference_price
+        min_notional = self._min_notional(market)
+        if min_notional is not None and estimated_notional < min_notional:
+            raise ValueError("tracked exit is below the exchange minimum notional")
+        if estimated_notional > Decimal(str(self.max_exit_notional_usdt)):
+            raise BinanceTestnetSafetyError(
+                f"tracked exit exceeds hard Testnet exit cap of {self.max_exit_notional_usdt:.2f} USDT"
+            )
+
+        order = self._request(
+            "POST",
+            "/api/v3/order",
+            params={
+                "symbol": exchange_symbol,
+                "side": "SELL",
+                "type": "MARKET",
+                "newOrderRespType": "FULL",
+                "quantity": self._format_decimal(rounded_quantity),
+            },
+            signed=True,
+        )
+        if not isinstance(order, dict):
+            raise RuntimeError("Binance Testnet returned invalid exit order payload")
+        return self._order_result(
+            order=order,
+            symbol=symbol,
+            requested_notional=None,
+            estimated_notional=estimated_notional,
+        )

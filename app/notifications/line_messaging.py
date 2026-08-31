@@ -128,3 +128,47 @@ def format_level_hit_message(
             f"ออเดอร์ที่ระบบกำลังติดตาม: {tracked_positions}",
         ]
     )
+
+
+def format_auto_exit_message(
+    *,
+    reason: str,
+    symbol: str,
+    entry_order_id: str,
+    exit_order_id: str,
+    account_balance_usdt: float,
+    estimated_portfolio_value_usdt: float,
+    entry_price: float,
+    exit_price: float,
+    lot: float,
+    take_profit: float,
+    stop_loss: float,
+    tracked_positions: int,
+) -> str:
+    normalized = reason.upper()
+    if normalized == "TP_HIT":
+        marker = "🎯"
+        label = "ถึง TP และปิดออเดอร์แล้ว"
+    elif normalized == "SL_HIT":
+        marker = "🛑"
+        label = "ถึง SL และปิดออเดอร์แล้ว"
+    else:
+        marker = "🔻"
+        label = "Strategy EXIT และปิดออเดอร์แล้ว"
+    return "\n".join(
+        [
+            "Trading BTC",
+            f"{marker} {label}",
+            f"คู่: {symbol}",
+            f"Entry Order ID: {entry_order_id}",
+            f"Exit Order ID: {exit_order_id}",
+            f"ยอด USDT ในบัญชี: {account_balance_usdt:,.2f}",
+            f"มูลค่าพอร์ต BTC+USDT โดยประมาณ: {estimated_portfolio_value_usdt:,.2f} USDT",
+            f"ราคาเข้า: {entry_price:,.2f} USDT",
+            f"ราคาปิด: {exit_price:,.2f} USDT",
+            f"Lot: {lot:.8f} BTC",
+            f"TP: {take_profit:,.2f} USDT",
+            f"SL: {stop_loss:,.2f} USDT",
+            f"ออเดอร์ที่ระบบกำลังติดตาม: {tracked_positions}",
+        ]
+    )

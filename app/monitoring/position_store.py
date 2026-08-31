@@ -56,13 +56,26 @@ class PositionStore:
             "created_at": self._now(),
             "triggered_at": None,
             "hit_price": None,
+            "exit_order_id": None,
+            "exit_reason": None,
+            "exit_price": None,
+            "closed_at": None,
         }
         positions.append(record)
         self.save(positions)
         return record
 
+    def active_positions(self, symbol: str | None = None) -> list[dict[str, Any]]:
+        normalized_symbol = symbol.upper() if symbol else None
+        return [
+            item
+            for item in self.load()
+            if item.get("status") == "OPEN"
+            and (normalized_symbol is None or item.get("symbol") == normalized_symbol)
+        ]
+
     def count_active(self) -> int:
-        return sum(1 for item in self.load() if item.get("status") == "OPEN")
+        return len(self.active_positions())
 
     def mark_triggered(self, order_id: str, event: str, hit_price: float) -> dict[str, Any]:
         positions = self.load()
@@ -74,6 +87,32 @@ class PositionStore:
             item["hit_price"] = float(hit_price)
             item["triggered_at"] = self._now()
             item["notification_sent"] = False
+            target = item
+            break
+        if target is None:
+            raise KeyError(f"unknown tracked order: {order_id}")
+        self.save(positions)
+        return target
+
+    def mark_closed(
+        self,
+        order_id: str,
+        *,
+        exit_order_id: str,
+        exit_reason: str,
+        exit_price: float,
+    ) -> dict[str, Any]:
+        positions = self.load()
+        target: dict[str, Any] | None = None
+        for item in positions:
+            if str(item.get("order_id")) != str(order_id):
+                continue
+            item["status"] = "CLOSED"
+            item["exit_order_id"] = str(exit_order_id)
+            item["exit_reason"] = exit_reason.upper()
+            item["exit_price"] = float(exit_price)
+            item["closed_at"] = self._now()
+            item["notification_sent"] = True
             target = item
             break
         if target is None:
