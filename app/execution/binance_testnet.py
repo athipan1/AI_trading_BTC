@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from urllib.parse import urlparse
+import hashlib
+import hmac
+from decimal import Decimal, ROUND_DOWN
+from urllib.parse import urlencode, urlparse
 
-import ccxt
+import requests
 
 
 class BinanceTestnetSafetyError(RuntimeError):
-    """Raised when the exchange is not provably connected to Binance Spot Testnet."""
+    """Raised when an execution target is not provably Binance Spot Testnet."""
 
 
 class BinanceTestnetBroker:
+    TESTNET_BASE_URL = "https://testnet.binance.vision"
     ALLOWED_SPOT_TESTNET_HOST = "testnet.binance.vision"
 
     def __init__(
@@ -18,85 +21,191 @@ class BinanceTestnetBroker:
         api_key: str,
         api_secret: str,
         max_order_notional_usdt: float = 25.0,
-        exchange_factory: Callable[[dict], object] | None = None,
+        session: requests.Session | None = None,
+        base_url: str = TESTNET_BASE_URL,
     ) -> None:
         if not api_key.strip() or not api_secret.strip():
             raise ValueError("Binance Testnet API key and secret are required")
         if max_order_notional_usdt <= 0:
             raise ValueError("max_order_notional_usdt must be positive")
 
-        factory = exchange_factory or ccxt.binance
+        self.api_key = api_key.strip()
+        self.api_secret = api_secret.strip()
         self.max_order_notional_usdt = float(max_order_notional_usdt)
-        self.exchange = factory(
-            {
-                "apiKey": api_key,
-                "secret": api_secret,
-                "enableRateLimit": True,
-                "options": {
-                    "defaultType": "spot",
-                    "adjustForTimeDifference": True,
-                },
-            }
-        )
+        self.session = session or requests.Session()
+        self.base_url = base_url.rstrip("/")
+        self._assert_testnet_url(self.base_url)
 
-        # CCXT requires sandbox mode to be enabled immediately after construction,
-        # before any network call. Keeping this here is a hard safety boundary.
-        self.exchange.set_sandbox_mode(True)
-        self._assert_spot_testnet_urls()
-
-    def _assert_spot_testnet_urls(self) -> None:
-        api_urls = getattr(self.exchange, "urls", {}).get("api")
-        if not isinstance(api_urls, dict):
-            raise BinanceTestnetSafetyError("CCXT did not expose Binance sandbox API URLs")
-
-        for route in ("public", "private"):
-            value = api_urls.get(route)
-            if not isinstance(value, str):
-                raise BinanceTestnetSafetyError(f"missing Binance Spot Testnet {route} URL")
-            host = urlparse(value).hostname
-            if host != self.ALLOWED_SPOT_TESTNET_HOST:
-                raise BinanceTestnetSafetyError(
-                    f"refusing exchange URL for {route}: expected {self.ALLOWED_SPOT_TESTNET_HOST}"
-                )
-
-    def _load_market(self, symbol: str) -> dict:
-        self.exchange.load_markets()
-        market = self.exchange.markets.get(symbol)
-        if not market:
-            raise ValueError(f"symbol is not available on Binance Spot Testnet: {symbol}")
-        if market.get("spot") is False:
-            raise ValueError(f"only spot symbols are allowed: {symbol}")
-        if market.get("active") is False:
-            raise ValueError(f"symbol is not active: {symbol}")
-        return market
+    @classmethod
+    def _assert_testnet_url(cls, url: str) -> None:
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.hostname != cls.ALLOWED_SPOT_TESTNET_HOST:
+            raise BinanceTestnetSafetyError(
+                f"refusing exchange URL: expected https://{cls.ALLOWED_SPOT_TESTNET_HOST}"
+            )
 
     @staticmethod
-    def _positive_price(ticker: dict, side: str) -> float:
-        candidates = (
-            (ticker.get("ask"), ticker.get("last"), ticker.get("close"))
-            if side == "buy"
-            else (ticker.get("bid"), ticker.get("last"), ticker.get("close"))
+    def _symbol_parts(symbol: str) -> tuple[str, str, str]:
+        normalized = symbol.upper().strip()
+        if normalized.count("/") != 1:
+            raise ValueError("symbol must use BASE/QUOTE format, for example BTC/USDT")
+        base, quote = normalized.split("/", 1)
+        if not base.isalnum() or not quote.isalnum():
+            raise ValueError("symbol contains unsupported characters")
+        return f"{base}{quote}", base, quote
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, object] | None = None,
+        signed: bool = False,
+    ) -> dict:
+        url = f"{self.base_url}{path}"
+        self._assert_testnet_url(url)
+        request_params = dict(params or {})
+        headers: dict[str, str] = {}
+
+        if signed:
+            request_params["timestamp"] = self._server_time_ms()
+            request_params["recvWindow"] = 5000
+            query = urlencode(request_params)
+            request_params["signature"] = hmac.new(
+                self.api_secret.encode("utf-8"),
+                query.encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+            headers["X-MBX-APIKEY"] = self.api_key
+
+        try:
+            response = self.session.request(
+                method,
+                url,
+                params=request_params,
+                headers=headers,
+                timeout=10,
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError(f"Binance Testnet network error: {exc.__class__.__name__}") from exc
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Binance Testnet returned non-JSON HTTP {response.status_code}"
+            ) from exc
+
+        if not response.ok:
+            code = payload.get("code") if isinstance(payload, dict) else None
+            message = payload.get("msg") if isinstance(payload, dict) else None
+            raise RuntimeError(
+                f"Binance Testnet API error HTTP {response.status_code}: code={code} msg={message}"
+            )
+        if not isinstance(payload, dict):
+            raise RuntimeError("Binance Testnet returned an unexpected response shape")
+        return payload
+
+    def _server_time_ms(self) -> int:
+        payload = self._request("GET", "/api/v3/time")
+        server_time = payload.get("serverTime")
+        if not isinstance(server_time, int) or server_time <= 0:
+            raise RuntimeError("Binance Testnet did not return a valid server time")
+        return server_time
+
+    def _load_market(self, symbol: str) -> dict:
+        exchange_symbol, base, quote = self._symbol_parts(symbol)
+        payload = self._request(
+            "GET",
+            "/api/v3/exchangeInfo",
+            params={"symbol": exchange_symbol},
         )
-        for candidate in candidates:
-            if candidate is not None and float(candidate) > 0:
-                return float(candidate)
-        raise RuntimeError("Binance Testnet ticker did not return a usable price")
+        symbols = payload.get("symbols")
+        if not isinstance(symbols, list) or len(symbols) != 1 or not isinstance(symbols[0], dict):
+            raise ValueError(f"symbol is not available on Binance Spot Testnet: {symbol}")
+        market = symbols[0]
+        if market.get("status") != "TRADING":
+            raise ValueError(f"symbol is not active: {symbol}")
+        if market.get("isSpotTradingAllowed") is False:
+            raise ValueError(f"spot trading is not allowed: {symbol}")
+        if market.get("baseAsset") != base or market.get("quoteAsset") != quote:
+            raise BinanceTestnetSafetyError("exchange symbol metadata does not match requested symbol")
+        return market
+
+    def _account(self) -> dict:
+        account = self._request("GET", "/api/v3/account", signed=True)
+        if account.get("canTrade") is False:
+            raise ValueError("Binance Testnet account is not allowed to trade")
+        return account
+
+    @staticmethod
+    def _free_balance(account: dict, asset: str) -> Decimal:
+        balances = account.get("balances")
+        if not isinstance(balances, list):
+            raise RuntimeError("Binance Testnet account response is missing balances")
+        for balance in balances:
+            if isinstance(balance, dict) and balance.get("asset") == asset:
+                return Decimal(str(balance.get("free", "0")))
+        return Decimal("0")
+
+    def _book_price(self, exchange_symbol: str, side: str) -> Decimal:
+        ticker = self._request(
+            "GET",
+            "/api/v3/ticker/bookTicker",
+            params={"symbol": exchange_symbol},
+        )
+        field = "askPrice" if side == "buy" else "bidPrice"
+        price = Decimal(str(ticker.get(field, "0")))
+        if price <= 0:
+            raise RuntimeError("Binance Testnet ticker did not return a usable price")
+        return price
+
+    @staticmethod
+    def _min_notional(market: dict) -> Decimal | None:
+        filters = market.get("filters") or []
+        for item in filters:
+            if not isinstance(item, dict):
+                continue
+            if item.get("filterType") in {"NOTIONAL", "MIN_NOTIONAL"}:
+                value = item.get("minNotional")
+                if value is not None:
+                    return Decimal(str(value))
+        return None
+
+    @staticmethod
+    def _market_step_size(market: dict) -> Decimal:
+        filters = market.get("filters") or []
+        preferred = ("MARKET_LOT_SIZE", "LOT_SIZE")
+        for filter_type in preferred:
+            for item in filters:
+                if not isinstance(item, dict) or item.get("filterType") != filter_type:
+                    continue
+                step = Decimal(str(item.get("stepSize", "0")))
+                if step > 0:
+                    return step
+        raise RuntimeError("Binance Testnet market metadata is missing a usable lot step size")
+
+    @staticmethod
+    def _format_decimal(value: Decimal) -> str:
+        return format(value, "f")
 
     def preflight(self, symbol: str) -> dict:
         market = self._load_market(symbol)
-        self.exchange.fetch_balance()
-        ticker = self.exchange.fetch_ticker(symbol)
-        price = self._positive_price(ticker, "buy")
+        account = self._account()
+        exchange_symbol, base, quote = self._symbol_parts(symbol)
+        price = self._book_price(exchange_symbol, "buy")
         return {
             "mode": "binance_spot_testnet",
             "sandbox": True,
             "host": self.ALLOWED_SPOT_TESTNET_HOST,
-            "symbol": symbol,
-            "base": market.get("base"),
-            "quote": market.get("quote"),
-            "reference_price": price,
+            "symbol": symbol.upper(),
+            "base": base,
+            "quote": quote,
+            "reference_price": float(price),
             "credentials_valid": True,
+            "can_trade": account.get("canTrade", True),
             "order_sent": False,
+            "exchange_status": market.get("status"),
         }
 
     def place_market_order(self, symbol: str, side: str, notional_usdt: float) -> dict:
@@ -111,64 +220,82 @@ class BinanceTestnetBroker:
             )
 
         market = self._load_market(symbol)
-        if market.get("quote") != "USDT":
+        exchange_symbol, base, quote = self._symbol_parts(symbol)
+        if quote != "USDT":
             raise ValueError("this workflow only allows USDT-quoted spot symbols")
 
-        ticker = self.exchange.fetch_ticker(symbol)
-        reference_price = self._positive_price(ticker, normalized_side)
-        raw_amount = notional_usdt / reference_price
-        amount = float(self.exchange.amount_to_precision(symbol, raw_amount))
-        if amount <= 0:
-            raise ValueError("rounded order quantity is zero")
-
-        estimated_notional = amount * reference_price
-        if estimated_notional > self.max_order_notional_usdt * 1.001:
-            raise BinanceTestnetSafetyError("rounded quantity would exceed the hard Testnet notional cap")
-
-        amount_limits = (market.get("limits") or {}).get("amount") or {}
-        cost_limits = (market.get("limits") or {}).get("cost") or {}
-        min_amount = amount_limits.get("min")
-        min_cost = cost_limits.get("min")
-        if min_amount is not None and amount < float(min_amount):
-            raise ValueError(f"quantity {amount} is below exchange minimum amount {min_amount}")
-        if min_cost is not None and estimated_notional < float(min_cost):
+        requested_notional = Decimal(str(notional_usdt))
+        min_notional = self._min_notional(market)
+        if min_notional is not None and requested_notional < min_notional:
             raise ValueError(
-                f"estimated notional {estimated_notional:.4f} is below exchange minimum cost {min_cost}"
+                f"requested notional {requested_notional} is below exchange minimum {min_notional}"
             )
 
-        balance = self.exchange.fetch_balance()
-        free = balance.get("free") or {}
-        base = market.get("base")
-        quote = market.get("quote")
-        if normalized_side == "buy":
-            available = float(free.get(quote, 0) or 0)
-            if available < estimated_notional:
-                raise ValueError(f"insufficient {quote} Testnet balance")
-        else:
-            available = float(free.get(base, 0) or 0)
-            if available < amount:
-                raise ValueError(f"insufficient {base} Testnet balance")
+        account = self._account()
+        order_params: dict[str, object] = {
+            "symbol": exchange_symbol,
+            "side": normalized_side.upper(),
+            "type": "MARKET",
+            "newOrderRespType": "FULL",
+        }
+        reference_price = self._book_price(exchange_symbol, normalized_side)
 
-        order = self.exchange.create_order(symbol, "market", normalized_side, amount)
+        if normalized_side == "buy":
+            if market.get("quoteOrderQtyMarketAllowed") is False:
+                raise ValueError("Binance Testnet does not allow quoteOrderQty for this market")
+            available_quote = self._free_balance(account, quote)
+            if available_quote < requested_notional:
+                raise ValueError(f"insufficient {quote} Testnet balance")
+            order_params["quoteOrderQty"] = self._format_decimal(requested_notional)
+            estimated_notional = requested_notional
+        else:
+            step = self._market_step_size(market)
+            raw_quantity = requested_notional / reference_price
+            quantity = (raw_quantity / step).to_integral_value(rounding=ROUND_DOWN) * step
+            if quantity <= 0:
+                raise ValueError("rounded order quantity is zero")
+            available_base = self._free_balance(account, base)
+            if available_base < quantity:
+                raise ValueError(f"insufficient {base} Testnet balance")
+            estimated_notional = quantity * reference_price
+            if estimated_notional > Decimal(str(self.max_order_notional_usdt)) * Decimal("1.001"):
+                raise BinanceTestnetSafetyError(
+                    "rounded quantity would exceed the hard Testnet notional cap"
+                )
+            order_params["quantity"] = self._format_decimal(quantity)
+
+        order = self._request(
+            "POST",
+            "/api/v3/order",
+            params=order_params,
+            signed=True,
+        )
+        order_id = order.get("orderId")
+        executed_qty = Decimal(str(order.get("executedQty", "0")))
+        quote_qty = Decimal(str(order.get("cummulativeQuoteQty", "0")))
+        average = quote_qty / executed_qty if executed_qty > 0 else None
+
         return {
             "mode": "binance_spot_testnet",
             "sandbox": True,
             "host": self.ALLOWED_SPOT_TESTNET_HOST,
             "order_sent": True,
-            "id": order.get("id"),
+            "id": str(order_id) if order_id is not None else None,
+            "order_id": order_id,
             "client_order_id": order.get("clientOrderId"),
-            "symbol": order.get("symbol") or symbol,
-            "type": order.get("type") or "market",
-            "side": order.get("side") or normalized_side,
+            "symbol": symbol.upper(),
+            "exchange_symbol": order.get("symbol") or exchange_symbol,
+            "type": str(order.get("type") or "MARKET").lower(),
+            "side": str(order.get("side") or normalized_side).lower(),
             "status": order.get("status"),
-            "amount": order.get("amount", amount),
-            "filled": order.get("filled"),
-            "remaining": order.get("remaining"),
-            "average": order.get("average"),
-            "price": order.get("price"),
-            "cost": order.get("cost"),
-            "timestamp": order.get("timestamp"),
-            "datetime": order.get("datetime"),
-            "requested_notional_usdt": float(notional_usdt),
-            "estimated_notional_usdt": estimated_notional,
+            "amount": float(executed_qty),
+            "filled": float(executed_qty),
+            "remaining": None,
+            "average": float(average) if average is not None else None,
+            "price": None,
+            "cost": float(quote_qty),
+            "timestamp": order.get("transactTime"),
+            "datetime": None,
+            "requested_notional_usdt": float(requested_notional),
+            "estimated_notional_usdt": float(estimated_notional),
         }
