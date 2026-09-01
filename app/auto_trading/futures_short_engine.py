@@ -76,7 +76,7 @@ class FuturesShortAutoTrader:
                     estimated_portfolio_value_usdt=float(snapshot["margin_balance_usdt"]),
                     entry_price=float(position["entry_price"]),
                     lot=float(position["quantity"]),
-                    take_profit=None,
+                    take_profit=float(position["take_profit"]),
                     stop_loss=float(position["stop_loss"]),
                     binance_open_orders=0,
                     tracked_positions=self.position_store.count_active(),
@@ -90,6 +90,7 @@ class FuturesShortAutoTrader:
     def _send_close_notification(
         self,
         *,
+        reason: str,
         entry_position: dict[str, Any],
         exit_order: dict[str, Any],
         snapshot: dict[str, Any],
@@ -99,7 +100,7 @@ class FuturesShortAutoTrader:
         try:
             self.notifier.send_text(
                 format_auto_exit_message(
-                    reason="EMA50_SHORT_CLOSE_EXIT",
+                    reason=reason,
                     symbol=self.symbol,
                     entry_order_id=str(entry_position["order_id"]),
                     exit_order_id=str(exit_order["order_id"]),
@@ -108,7 +109,7 @@ class FuturesShortAutoTrader:
                     entry_price=float(entry_position["entry_price"]),
                     exit_price=float(exit_order["average"]),
                     lot=float(exit_order["filled"]),
-                    take_profit=None,
+                    take_profit=float(entry_position["take_profit"]),
                     stop_loss=float(entry_position["stop_loss"]),
                     tracked_positions=self.position_store.count_active(),
                     strategy_id=self.strategy_id,
@@ -119,13 +120,16 @@ class FuturesShortAutoTrader:
         return "sent"
 
     @staticmethod
-    def _stop_from_fill(signal: TradeSignal, fill_price: float) -> float:
-        if signal.entry_price is None or signal.stop_loss is None:
-            raise AutoTradingHalted("SHORT signal is missing entry or EMA50 risk reference")
+    def _levels_from_fill(signal: TradeSignal, fill_price: float) -> tuple[float, float]:
+        if signal.entry_price is None or signal.stop_loss is None or signal.take_profit is None:
+            raise AutoTradingHalted("SHORT signal is missing entry, SL, or TP")
         stop_pct = (signal.stop_loss - signal.entry_price) / signal.entry_price
-        if not 0 < stop_pct < 1:
-            raise AutoTradingHalted("SHORT signal contains invalid EMA50 risk distance")
-        return fill_price * (1 + stop_pct)
+        target_pct = (signal.entry_price - signal.take_profit) / signal.entry_price
+        if not 0 < stop_pct < 1 or not 0 < target_pct < 1:
+            raise AutoTradingHalted("SHORT signal contains invalid SL/TP distance")
+        stop_loss = fill_price * (1 + stop_pct)
+        take_profit = fill_price * (1 - target_pct)
+        return take_profit, stop_loss
 
     def _enter_short(
         self,
@@ -155,13 +159,14 @@ class FuturesShortAutoTrader:
             self.state_store.mark_order_uncertain(error)
             raise AutoTradingHalted(str(error))
         self.state_store.mark_order_acknowledged(str(order_id))
+        take_profit, stop_loss = self._levels_from_fill(signal, float(fill_price))
         position = self.position_store.add_short_position(
             order_id=str(order_id),
             symbol=self.symbol,
             entry_price=float(fill_price),
             quantity=float(quantity),
-            take_profit=None,
-            stop_loss=self._stop_from_fill(signal, float(fill_price)),
+            take_profit=take_profit,
+            stop_loss=stop_loss,
             strategy_id=self.strategy_id,
             exit_mode=self.strategy.exit_mode,
         )
@@ -190,12 +195,13 @@ class FuturesShortAutoTrader:
         self,
         *,
         position: dict[str, Any],
+        reason: str,
         candle_ms: int,
     ) -> dict[str, Any]:
         self.state_store.begin_order_attempt(
             action="BUY_TO_CLOSE",
             symbol=self.symbol,
-            reason="EMA50_SHORT_CLOSE_EXIT",
+            reason=reason,
             candle_ms=candle_ms,
         )
         try:
@@ -218,11 +224,12 @@ class FuturesShortAutoTrader:
         closed = self.position_store.mark_closed(
             str(position["order_id"]),
             exit_order_id=str(order_id),
-            exit_reason="EMA50_SHORT_CLOSE_EXIT",
+            exit_reason=reason,
             exit_price=float(exit_price),
         )
         snapshot = self.broker.account_snapshot(self.symbol)
         line_status = self._send_close_notification(
+            reason=reason,
             entry_position=position,
             exit_order=order,
             snapshot=snapshot,
@@ -232,6 +239,7 @@ class FuturesShortAutoTrader:
         return {
             "event": "SHORT_CLOSED",
             "strategy_id": self.strategy_id,
+            "reason": reason,
             "symbol": self.symbol,
             "timeframe": self.timeframe,
             "candle_ms": candle_ms,
@@ -249,6 +257,23 @@ class FuturesShortAutoTrader:
             limit=self.candle_limit,
         )
         candle_ms = candles[-1].timestamp_ms
+        position = self._active_position()
+
+        if position is not None:
+            live_price = self.broker.current_price(self.symbol)
+            if live_price >= float(position["stop_loss"]):
+                return self._close_short(
+                    position=position,
+                    reason="SL_HIT",
+                    candle_ms=candle_ms,
+                )
+            if live_price <= float(position["take_profit"]):
+                return self._close_short(
+                    position=position,
+                    reason="TP_HIT",
+                    candle_ms=candle_ms,
+                )
+
         if self.state_store.last_processed_candle_ms() == candle_ms:
             return {
                 "event": "WAIT_NEXT_CANDLE",
@@ -263,7 +288,6 @@ class FuturesShortAutoTrader:
             self.symbol,
             self.timeframe,
         )
-        position = self._active_position()
         if position is not None and signal.stop_loss is not None:
             position = self.position_store.update_stop_loss(
                 str(position["order_id"]),
@@ -272,7 +296,11 @@ class FuturesShortAutoTrader:
 
         if position is not None:
             if signal.action == TradeAction.EXIT:
-                result = self._close_short(position=position, candle_ms=candle_ms)
+                result = self._close_short(
+                    position=position,
+                    reason="EMA50_SHORT_CLOSE_EXIT",
+                    candle_ms=candle_ms,
+                )
                 result["signal"] = signal.model_dump(mode="json")
                 result["diagnostic"] = diagnostic.to_dict()
                 return result
