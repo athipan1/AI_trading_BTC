@@ -23,21 +23,25 @@ class RiskEngine:
             return RiskDecision(approved=False, reason="signal is not a BUY")
         if equity <= 0:
             return RiskDecision(approved=False, reason="equity must be positive")
-        if signal.entry_price is None or signal.stop_loss is None or signal.take_profit is None:
-            return RiskDecision(approved=False, reason="entry, stop-loss and take-profit are required")
+        if signal.entry_price is None or signal.stop_loss is None:
+            return RiskDecision(approved=False, reason="entry and stop-loss are required")
         if signal.stop_loss >= signal.entry_price:
             return RiskDecision(approved=False, reason="long stop-loss must be below entry")
-        if signal.take_profit <= signal.entry_price:
-            return RiskDecision(approved=False, reason="long take-profit must be above entry")
 
         risk_per_unit = signal.entry_price - signal.stop_loss
-        reward_per_unit = signal.take_profit - signal.entry_price
-        reward_risk = reward_per_unit / risk_per_unit
-        if reward_risk < self.min_reward_risk:
-            return RiskDecision(
-                approved=False,
-                reason=f"reward/risk {reward_risk:.2f} below minimum {self.min_reward_risk:.2f}",
-            )
+
+        # Fixed-TP strategies must satisfy the configured reward/risk floor.
+        # Trend-following strategies may intentionally omit TP and exit via a dynamic rule.
+        if signal.take_profit is not None:
+            if signal.take_profit <= signal.entry_price:
+                return RiskDecision(approved=False, reason="long take-profit must be above entry")
+            reward_per_unit = signal.take_profit - signal.entry_price
+            reward_risk = reward_per_unit / risk_per_unit
+            if reward_risk < self.min_reward_risk:
+                return RiskDecision(
+                    approved=False,
+                    reason=f"reward/risk {reward_risk:.2f} below minimum {self.min_reward_risk:.2f}",
+                )
 
         risk_budget = equity * self.risk_per_trade_pct
         quantity_by_risk = risk_budget / risk_per_unit
