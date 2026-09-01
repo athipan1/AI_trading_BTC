@@ -67,6 +67,12 @@ def _tp_text(take_profit: float | None) -> str:
     return f"{take_profit:,.2f} USDT"
 
 
+def _stop_label(strategy_id: str) -> str:
+    if strategy_id.strip().lower() == "baseline":
+        return "SL"
+    return "SL/Exit Reference"
+
+
 def format_open_order_message(
     *,
     symbol: str,
@@ -82,6 +88,7 @@ def format_open_order_message(
     tracked_positions: int,
     strategy_id: str = "baseline",
 ) -> str:
+    stop_label = _stop_label(strategy_id)
     return "\n".join(
         [
             "Trading BTC",
@@ -94,7 +101,7 @@ def format_open_order_message(
             f"ราคาเข้า: {entry_price:,.2f} USDT",
             f"Lot: {lot:.8f} BTC",
             f"TP: {_tp_text(take_profit)}",
-            f"SL/Exit Reference: {stop_loss:,.2f} USDT",
+            f"{stop_label}: {stop_loss:,.2f} USDT",
             f"Open orders ใน Binance: {binance_open_orders}",
             f"ออเดอร์ที่ระบบกำลังติดตาม: {tracked_positions}",
         ]
@@ -167,6 +174,7 @@ def format_auto_exit_message(
     else:
         marker = "🔻"
         label = "Strategy EXIT และปิดออเดอร์แล้ว"
+    stop_label = _stop_label(strategy_id)
     return "\n".join(
         [
             "Trading BTC",
@@ -181,7 +189,7 @@ def format_auto_exit_message(
             f"ราคาปิด: {exit_price:,.2f} USDT",
             f"Lot: {lot:.8f} BTC",
             f"TP: {_tp_text(take_profit)}",
-            f"SL/Exit Reference: {stop_loss:,.2f} USDT",
+            f"{stop_label}: {stop_loss:,.2f} USDT",
             f"ออเดอร์ที่ระบบกำลังติดตาม: {tracked_positions}",
         ]
     )
