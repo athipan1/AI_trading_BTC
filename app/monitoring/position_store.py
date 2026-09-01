@@ -29,18 +29,21 @@ class PositionStore:
     def _now() -> str:
         return datetime.now(UTC).isoformat()
 
-    def add_long_position(
+    def _add_position(
         self,
         *,
         order_id: str,
         symbol: str,
+        side: str,
         entry_price: float,
         quantity: float,
         take_profit: float | None,
         stop_loss: float,
-        strategy_id: str = "baseline",
-        exit_mode: str = "fixed_tp_sl",
+        strategy_id: str,
+        exit_mode: str,
     ) -> dict[str, Any]:
+        if side not in {"buy", "sell"}:
+            raise ValueError("position side must be buy or sell")
         positions = self.load()
         normalized_symbol = symbol.upper()
         normalized_strategy = strategy_id.lower()
@@ -60,7 +63,7 @@ class PositionStore:
             "strategy_id": normalized_strategy,
             "exit_mode": exit_mode,
             "symbol": normalized_symbol,
-            "side": "buy",
+            "side": side,
             "entry_price": float(entry_price),
             "quantity": float(quantity),
             "take_profit": float(take_profit) if take_profit is not None else None,
@@ -78,6 +81,54 @@ class PositionStore:
         positions.append(record)
         self.save(positions)
         return record
+
+    def add_long_position(
+        self,
+        *,
+        order_id: str,
+        symbol: str,
+        entry_price: float,
+        quantity: float,
+        take_profit: float | None,
+        stop_loss: float,
+        strategy_id: str = "baseline",
+        exit_mode: str = "fixed_tp_sl",
+    ) -> dict[str, Any]:
+        return self._add_position(
+            order_id=order_id,
+            symbol=symbol,
+            side="buy",
+            entry_price=entry_price,
+            quantity=quantity,
+            take_profit=take_profit,
+            stop_loss=stop_loss,
+            strategy_id=strategy_id,
+            exit_mode=exit_mode,
+        )
+
+    def add_short_position(
+        self,
+        *,
+        order_id: str,
+        symbol: str,
+        entry_price: float,
+        quantity: float,
+        take_profit: float | None,
+        stop_loss: float,
+        strategy_id: str = "triple_ema_short",
+        exit_mode: str = "close_above_ema50",
+    ) -> dict[str, Any]:
+        return self._add_position(
+            order_id=order_id,
+            symbol=symbol,
+            side="sell",
+            entry_price=entry_price,
+            quantity=quantity,
+            take_profit=take_profit,
+            stop_loss=stop_loss,
+            strategy_id=strategy_id,
+            exit_mode=exit_mode,
+        )
 
     def active_positions(
         self,
