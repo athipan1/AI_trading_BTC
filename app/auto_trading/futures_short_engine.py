@@ -27,7 +27,7 @@ class FuturesShortAutoTrader:
         notifier: LineMessagingNotifier | None,
         symbol: str = "BTC/USDT",
         timeframe: str = "1h",
-        entry_notional_usdt: float = 10.0,
+        entry_notional_usdt: float = 55.0,
         candle_limit: int = 240,
     ) -> None:
         if entry_notional_usdt <= 0:
@@ -340,7 +340,26 @@ class FuturesShortAutoTrader:
                 "risk": decision.model_dump(mode="json"),
                 "diagnostic": diagnostic.to_dict(),
             }
+
         notional = min(float(decision.notional), self.entry_notional_usdt)
+        minimum_notional = self.broker.minimum_entry_notional(self.symbol)
+        safe_minimum_notional = minimum_notional * 1.01
+        if notional < safe_minimum_notional:
+            self.state_store.mark_candle_processed(candle_ms)
+            return {
+                "event": "ENTRY_SKIPPED_MIN_NOTIONAL",
+                "strategy_id": self.strategy_id,
+                "symbol": self.symbol,
+                "timeframe": self.timeframe,
+                "candle_ms": candle_ms,
+                "candidate_notional_usdt": notional,
+                "minimum_notional_usdt": minimum_notional,
+                "safe_minimum_notional_usdt": safe_minimum_notional,
+                "signal": signal.model_dump(mode="json"),
+                "risk": decision.model_dump(mode="json"),
+                "diagnostic": diagnostic.to_dict(),
+            }
+
         return self._enter_short(
             signal=signal,
             candle_ms=candle_ms,
