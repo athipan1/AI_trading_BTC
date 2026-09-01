@@ -172,3 +172,56 @@ def format_auto_exit_message(
             f"ออเดอร์ที่ระบบกำลังติดตาม: {tracked_positions}",
         ]
     )
+
+
+def format_signal_diagnostic_message(
+    *,
+    symbol: str,
+    timeframe: str,
+    candle_ms: int,
+    signal_action: str,
+    regime: str,
+    price: float,
+    ema_fast: float,
+    ema_slow: float,
+    ema_bull_threshold: float,
+    rsi: float,
+    momentum_pct: float,
+    atr: float,
+    ema_trend_ok: bool,
+    price_above_ema_fast_ok: bool,
+    rsi_ok: bool,
+    momentum_ok: bool,
+    buy_ready: bool,
+    blockers: list[str],
+) -> str:
+    def mark(value: bool) -> str:
+        return "✅" if value else "❌"
+
+    status = "BUY READY 🟢" if buy_ready else f"{signal_action.upper()} 🟡"
+    lines = [
+        "Trading BTC",
+        "📊 Signal Diagnostic",
+        f"คู่: {symbol} | TF: {timeframe}",
+        f"Closed candle: {candle_ms}",
+        f"Regime: {regime}",
+        f"Signal: {status}",
+        "",
+        f"Price: {price:,.2f} USDT",
+        f"EMA20: {ema_fast:,.2f}",
+        f"EMA50: {ema_slow:,.2f}",
+        f"RSI14: {rsi:.2f}",
+        f"Momentum(10): {momentum_pct:+.4f}%",
+        f"ATR14: {atr:,.2f}",
+        "",
+        f"{mark(ema_trend_ok)} EMA20 > EMA50 x 1.002 ({ema_bull_threshold:,.2f})",
+        f"{mark(price_above_ema_fast_ok)} Price > EMA20",
+        f"{mark(rsi_ok)} RSI >= 50",
+        f"{mark(momentum_ok)} Momentum > 0%",
+    ]
+    if blockers:
+        lines.extend(["", "เหตุผลที่ยังไม่ BUY:"])
+        lines.extend(f"• {reason}" for reason in blockers)
+    else:
+        lines.extend(["", "ครบ 4 เงื่อนไข BUY แล้ว รอผ่าน Risk/Execution Gate"])
+    return "\n".join(lines)
