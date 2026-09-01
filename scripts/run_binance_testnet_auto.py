@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import time
+from pathlib import Path
 
 from app.auto_trading.engine import TestnetAutoTrader
 from app.auto_trading.state_store import AutoTradeStateStore, AutoTradingHalted
@@ -12,6 +13,7 @@ from app.monitoring.position_store import PositionStore
 from app.notifications.line_messaging import LineMessagingNotifier
 from app.risk.engine import RiskEngine
 from app.strategies.baseline import BaselineStrategy
+from app.strategies.triple_ema_breakout import TripleEMAAlignmentBreakoutStrategy
 
 CONFIRMATION_TOKEN = "BINANCE_TESTNET_AUTO"
 
@@ -51,17 +53,37 @@ def _line_notifier(require_line: bool) -> LineMessagingNotifier | None:
     return None
 
 
-def build_trader(args: argparse.Namespace) -> TestnetAutoTrader:
+def _strategy_state_path(base_path: str, strategy_id: str) -> str:
+    path = Path(base_path)
+    suffix = path.suffix or ".json"
+    return str(path.with_name(f"{path.stem}-{strategy_id}{suffix}"))
+
+
+def build_traders(args: argparse.Namespace) -> list[TestnetAutoTrader]:
     api_key = os.environ.get("BINANCE_TESTNET_API_KEY", "")
     api_secret = os.environ.get("BINANCE_TESTNET_API_SECRET", "")
     max_notional = float(os.environ.get("BINANCE_TESTNET_MAX_NOTIONAL_USDT", "25"))
     max_exit_notional = float(os.environ.get("BINANCE_TESTNET_MAX_EXIT_NOTIONAL_USDT", "100"))
-    entry_notional = args.entry_notional_usdt
-    if entry_notional is None:
-        entry_notional = float(os.environ.get("BTC_TESTNET_AUTO_ENTRY_NOTIONAL_USDT", "10"))
+    default_entry_notional = args.entry_notional_usdt
+    if default_entry_notional is None:
+        default_entry_notional = float(
+            os.environ.get("BTC_TESTNET_AUTO_ENTRY_NOTIONAL_USDT", "10")
+        )
+    baseline_notional = float(
+        os.environ.get("BTC_TESTNET_BASELINE_ENTRY_NOTIONAL_USDT", str(default_entry_notional))
+    )
+    triple_notional = float(
+        os.environ.get("BTC_TESTNET_TRIPLE_EMA_ENTRY_NOTIONAL_USDT", str(default_entry_notional))
+    )
+
     candle_limit = args.candle_limit
     if candle_limit is None:
-        candle_limit = int(os.environ.get("BTC_TESTNET_AUTO_CANDLE_LIMIT", "120"))
+        candle_limit = int(os.environ.get("BTC_TESTNET_AUTO_CANDLE_LIMIT", "240"))
+    if candle_limit < TripleEMAAlignmentBreakoutStrategy.min_candles:
+        raise ValueError(
+            f"candle_limit must be >= {TripleEMAAlignmentBreakoutStrategy.min_candles} "
+            "for Triple EMA strategy"
+        )
 
     broker = BinanceTestnetBroker(
         api_key=api_key,
@@ -78,18 +100,37 @@ def build_trader(args: argparse.Namespace) -> TestnetAutoTrader:
         ),
         min_reward_risk=float(os.environ.get("MIN_REWARD_RISK", "1.5")),
     )
-    return TestnetAutoTrader(
+    position_store = PositionStore(args.position_store)
+
+    baseline = TestnetAutoTrader(
         broker=broker,
         strategy=BaselineStrategy(),
         risk_engine=risk_engine,
-        position_store=PositionStore(args.position_store),
-        state_store=AutoTradeStateStore(args.state_store),
+        position_store=position_store,
+        state_store=AutoTradeStateStore(
+            _strategy_state_path(args.state_store, "baseline")
+        ),
         notifier=notifier,
         symbol=args.symbol,
         timeframe=args.timeframe,
-        entry_notional_usdt=entry_notional,
+        entry_notional_usdt=baseline_notional,
         candle_limit=candle_limit,
     )
+    triple = TestnetAutoTrader(
+        broker=broker,
+        strategy=TripleEMAAlignmentBreakoutStrategy(),
+        risk_engine=risk_engine,
+        position_store=position_store,
+        state_store=AutoTradeStateStore(
+            _strategy_state_path(args.state_store, "triple-ema")
+        ),
+        notifier=notifier,
+        symbol=args.symbol,
+        timeframe=args.timeframe,
+        entry_notional_usdt=triple_notional,
+        candle_limit=candle_limit,
+    )
+    return [baseline, triple]
 
 
 def main() -> None:
@@ -103,50 +144,57 @@ def main() -> None:
     if interval_seconds < 10:
         raise SystemExit("automatic trading interval must be at least 10 seconds")
 
-    trader = build_trader(args)
-    preflight = trader.broker.preflight(trader.symbol)
+    traders = build_traders(args)
+    primary = traders[0]
+    preflight = primary.broker.preflight(primary.symbol)
     print(json.dumps({"event": "PREFLIGHT_OK", "preflight": preflight}, sort_keys=True))
-    if trader.notifier is not None:
-        trader.notifier.send_text(
+    if primary.notifier is not None:
+        primary.notifier.send_text(
             "\n".join(
                 [
                     "Trading BTC",
-                    "🤖 Binance Spot Testnet Auto Trading เริ่มทำงาน",
-                    f"คู่: {trader.symbol}",
-                    f"Timeframe: {trader.timeframe}",
-                    f"Entry cap: {trader.entry_notional_usdt:.2f} USDT",
+                    "🤖 Binance Spot Testnet Multi-Strategy Auto Trading เริ่มทำงาน",
+                    f"คู่: {primary.symbol}",
+                    f"Timeframe: {primary.timeframe}",
+                    "Strategies: BASELINE + TRIPLE_EMA",
+                    f"Baseline entry cap: {traders[0].entry_notional_usdt:.2f} USDT",
+                    f"Triple EMA entry cap: {traders[1].entry_notional_usdt:.2f} USDT",
+                    "Max position: 1 position ต่อ strategy",
                 ]
             )
         )
 
     while True:
-        try:
-            result = trader.run_once()
-            print(json.dumps(result, sort_keys=True))
-        except AutoTradingHalted as exc:
-            print(
-                json.dumps(
-                    {
-                        "event": "AUTO_TRADING_HALTED",
-                        "reason": str(exc),
-                        "state": trader.state_store.load(),
-                    },
-                    sort_keys=True,
+        for trader in traders:
+            try:
+                result = trader.run_once()
+                print(json.dumps(result, sort_keys=True))
+            except AutoTradingHalted as exc:
+                print(
+                    json.dumps(
+                        {
+                            "event": "AUTO_TRADING_HALTED",
+                            "strategy_id": trader.strategy_id,
+                            "reason": str(exc),
+                            "state": trader.state_store.load(),
+                        },
+                        sort_keys=True,
+                    )
                 )
-            )
-            raise SystemExit(2) from exc
-        except Exception as exc:
-            print(
-                json.dumps(
-                    {
-                        "event": "CHECK_ERROR",
-                        "error": f"{exc.__class__.__name__}: {exc}",
-                    },
-                    sort_keys=True,
+                raise SystemExit(2) from exc
+            except Exception as exc:
+                print(
+                    json.dumps(
+                        {
+                            "event": "CHECK_ERROR",
+                            "strategy_id": trader.strategy_id,
+                            "error": f"{exc.__class__.__name__}: {exc}",
+                        },
+                        sort_keys=True,
+                    )
                 )
-            )
-            if not args.watch:
-                raise
+                if not args.watch:
+                    raise
 
         if not args.watch:
             break
