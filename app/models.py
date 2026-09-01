@@ -20,6 +20,7 @@ class Candle(StrictModel):
 
 class TradeAction(StrEnum):
     BUY = "BUY"
+    SHORT = "SHORT"
     HOLD = "HOLD"
     EXIT = "EXIT"
 
