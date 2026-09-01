@@ -171,6 +171,9 @@ def format_auto_exit_message(
     elif normalized == "EMA50_CLOSE_EXIT":
         marker = "📉"
         label = "Close 1H ต่ำกว่า EMA50 และปิดออเดอร์แล้ว"
+    elif normalized == "EMA50_SHORT_CLOSE_EXIT":
+        marker = "📈"
+        label = "Close 1H สูงกว่า EMA50 และปิด SHORT แล้ว"
     else:
         marker = "🔻"
         label = "Strategy EXIT และปิดออเดอร์แล้ว"
