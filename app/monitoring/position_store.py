@@ -36,20 +36,34 @@ class PositionStore:
         symbol: str,
         entry_price: float,
         quantity: float,
-        take_profit: float,
+        take_profit: float | None,
         stop_loss: float,
+        strategy_id: str = "baseline",
+        exit_mode: str = "fixed_tp_sl",
     ) -> dict[str, Any]:
         positions = self.load()
+        normalized_symbol = symbol.upper()
+        normalized_strategy = strategy_id.lower()
         for existing in positions:
             if str(existing.get("order_id")) == str(order_id):
                 return existing
+            if (
+                existing.get("status") == "OPEN"
+                and existing.get("symbol") == normalized_symbol
+                and str(existing.get("strategy_id", "baseline")).lower() == normalized_strategy
+            ):
+                raise ValueError(
+                    f"strategy {normalized_strategy} already has an OPEN position for {normalized_symbol}"
+                )
         record: dict[str, Any] = {
             "order_id": str(order_id),
-            "symbol": symbol.upper(),
+            "strategy_id": normalized_strategy,
+            "exit_mode": exit_mode,
+            "symbol": normalized_symbol,
             "side": "buy",
             "entry_price": float(entry_price),
             "quantity": float(quantity),
-            "take_profit": float(take_profit),
+            "take_profit": float(take_profit) if take_profit is not None else None,
             "stop_loss": float(stop_loss),
             "status": "OPEN",
             "notification_sent": False,
@@ -65,17 +79,45 @@ class PositionStore:
         self.save(positions)
         return record
 
-    def active_positions(self, symbol: str | None = None) -> list[dict[str, Any]]:
+    def active_positions(
+        self,
+        symbol: str | None = None,
+        strategy_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         normalized_symbol = symbol.upper() if symbol else None
+        normalized_strategy = strategy_id.lower() if strategy_id else None
         return [
             item
             for item in self.load()
             if item.get("status") == "OPEN"
             and (normalized_symbol is None or item.get("symbol") == normalized_symbol)
+            and (
+                normalized_strategy is None
+                or str(item.get("strategy_id", "baseline")).lower() == normalized_strategy
+            )
         ]
 
-    def count_active(self) -> int:
-        return len(self.active_positions())
+    def count_active(self, strategy_id: str | None = None) -> int:
+        return len(self.active_positions(strategy_id=strategy_id))
+
+    def update_stop_loss(self, order_id: str, stop_loss: float) -> dict[str, Any]:
+        if stop_loss <= 0:
+            raise ValueError("stop_loss must be positive")
+        positions = self.load()
+        target: dict[str, Any] | None = None
+        for item in positions:
+            if str(item.get("order_id")) != str(order_id):
+                continue
+            if item.get("status") != "OPEN":
+                raise ValueError("cannot update stop_loss for a non-open position")
+            item["stop_loss"] = float(stop_loss)
+            item["stop_updated_at"] = self._now()
+            target = item
+            break
+        if target is None:
+            raise KeyError(f"unknown tracked order: {order_id}")
+        self.save(positions)
+        return target
 
     def mark_triggered(self, order_id: str, event: str, hit_price: float) -> dict[str, Any]:
         positions = self.load()
