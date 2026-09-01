@@ -10,9 +10,10 @@ from app.notifications.line_messaging import (
     LineMessagingNotifier,
     format_auto_exit_message,
     format_open_order_message,
+    format_signal_diagnostic_message,
 )
 from app.risk.engine import RiskEngine
-from app.strategies.baseline import BaselineStrategy
+from app.strategies.baseline import BaselineStrategy, SignalDiagnostic
 
 
 class TestnetAutoTrader:
@@ -54,6 +55,66 @@ class TestnetAutoTrader:
             self.state_store.halt(reason)
             raise AutoTradingHalted(reason)
         return positions[0] if positions else None
+
+    def _analyze_signal(self, candles: list[Any]) -> tuple[TradeSignal, SignalDiagnostic | None]:
+        analyze_with_diagnostic = getattr(self.strategy, "analyze_with_diagnostic", None)
+        if callable(analyze_with_diagnostic):
+            signal, diagnostic = analyze_with_diagnostic(
+                candles,
+                self.symbol,
+                self.timeframe,
+            )
+            return signal, diagnostic
+        return self.strategy.analyze(candles, self.symbol, self.timeframe), None
+
+    def _send_signal_diagnostic(
+        self,
+        *,
+        signal: TradeSignal,
+        diagnostic: SignalDiagnostic | None,
+        candle_ms: int,
+    ) -> str:
+        if diagnostic is None:
+            return "not_available"
+        if self.notifier is None:
+            return "not_configured"
+        try:
+            self.notifier.send_text(
+                format_signal_diagnostic_message(
+                    symbol=self.symbol,
+                    timeframe=self.timeframe,
+                    candle_ms=candle_ms,
+                    signal_action=signal.action.value,
+                    regime=diagnostic.regime.value,
+                    price=diagnostic.price,
+                    ema_fast=diagnostic.ema_fast,
+                    ema_slow=diagnostic.ema_slow,
+                    ema_bull_threshold=diagnostic.ema_bull_threshold,
+                    rsi=diagnostic.rsi,
+                    momentum_pct=diagnostic.momentum_pct,
+                    atr=diagnostic.atr,
+                    ema_trend_ok=diagnostic.ema_trend_ok,
+                    price_above_ema_fast_ok=diagnostic.price_above_ema_fast_ok,
+                    rsi_ok=diagnostic.rsi_ok,
+                    momentum_ok=diagnostic.momentum_ok,
+                    buy_ready=diagnostic.buy_ready,
+                    blockers=list(diagnostic.blockers),
+                )
+            )
+        except Exception as exc:
+            return f"warning:{exc.__class__.__name__}"
+        return "sent"
+
+    @staticmethod
+    def _attach_diagnostic(
+        result: dict[str, Any],
+        diagnostic: SignalDiagnostic | None,
+        line_status: str,
+    ) -> dict[str, Any]:
+        if diagnostic is not None:
+            result["diagnostic"] = diagnostic.to_dict()
+        result["diagnostic_line_notification"] = line_status
+        return result
 
     def _send_open_notification(
         self,
@@ -281,7 +342,13 @@ class TestnetAutoTrader:
                 "tracked_positions": self.position_store.count_active(),
             }
 
-        signal = self.strategy.analyze(candles, self.symbol, self.timeframe)
+        signal, diagnostic = self._analyze_signal(candles)
+        diagnostic_line_status = self._send_signal_diagnostic(
+            signal=signal,
+            diagnostic=diagnostic,
+            candle_ms=candle_ms,
+        )
+
         if position is not None:
             if signal.action == TradeAction.EXIT:
                 result = self._exit_position(
@@ -290,9 +357,9 @@ class TestnetAutoTrader:
                     candle_ms=candle_ms,
                 )
                 result["signal"] = signal.model_dump(mode="json")
-                return result
+                return self._attach_diagnostic(result, diagnostic, diagnostic_line_status)
             self.state_store.mark_candle_processed(candle_ms)
-            return {
+            result = {
                 "event": "POSITION_HELD",
                 "symbol": self.symbol,
                 "timeframe": self.timeframe,
@@ -300,23 +367,25 @@ class TestnetAutoTrader:
                 "signal": signal.model_dump(mode="json"),
                 "tracked_positions": self.position_store.count_active(),
             }
+            return self._attach_diagnostic(result, diagnostic, diagnostic_line_status)
 
         if signal.action != TradeAction.BUY:
             self.state_store.mark_candle_processed(candle_ms)
-            return {
+            result = {
                 "event": "NO_TRADE",
                 "symbol": self.symbol,
                 "timeframe": self.timeframe,
                 "candle_ms": candle_ms,
                 "signal": signal.model_dump(mode="json"),
             }
+            return self._attach_diagnostic(result, diagnostic, diagnostic_line_status)
 
         snapshot = self.broker.account_snapshot(self.symbol)
         equity = float(snapshot["estimated_portfolio_value_quote"])
         risk = self.risk_engine.evaluate_entry(signal, equity)
         if not risk.approved:
             self.state_store.mark_candle_processed(candle_ms)
-            return {
+            result = {
                 "event": "RISK_BLOCKED",
                 "symbol": self.symbol,
                 "timeframe": self.timeframe,
@@ -324,6 +393,7 @@ class TestnetAutoTrader:
                 "signal": signal.model_dump(mode="json"),
                 "risk": risk.model_dump(mode="json"),
             }
+            return self._attach_diagnostic(result, diagnostic, diagnostic_line_status)
 
         notional = min(
             self.entry_notional_usdt,
@@ -335,7 +405,7 @@ class TestnetAutoTrader:
         minimum_notional = float(market_minimum) if market_minimum is not None else 0.0
         if notional < minimum_notional:
             self.state_store.mark_candle_processed(candle_ms)
-            return {
+            result = {
                 "event": "RISK_BLOCKED",
                 "symbol": self.symbol,
                 "timeframe": self.timeframe,
@@ -347,9 +417,10 @@ class TestnetAutoTrader:
                     f"{minimum_notional:.4f}"
                 ),
             }
+            return self._attach_diagnostic(result, diagnostic, diagnostic_line_status)
         if float(snapshot["quote_free"]) < notional:
             self.state_store.mark_candle_processed(candle_ms)
-            return {
+            result = {
                 "event": "RISK_BLOCKED",
                 "symbol": self.symbol,
                 "timeframe": self.timeframe,
@@ -358,8 +429,11 @@ class TestnetAutoTrader:
                 "risk": risk.model_dump(mode="json"),
                 "reason": "insufficient free USDT Testnet balance",
             }
-        return self._enter_position(
+            return self._attach_diagnostic(result, diagnostic, diagnostic_line_status)
+
+        result = self._enter_position(
             signal=signal,
             candle_ms=candle_ms,
             notional_usdt=notional,
         )
+        return self._attach_diagnostic(result, diagnostic, diagnostic_line_status)
