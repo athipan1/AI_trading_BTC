@@ -35,9 +35,12 @@ class BacktestEngine:
         self.slippage_bps = slippage_bps
 
     def run(self, candles: list[Candle], symbol: str, timeframe: str) -> BacktestResult:
-        if len(candles) < 80:
-            raise ValueError("backtest requires at least 80 candles")
+        warmup = max(60, int(getattr(self.strategy, "min_candles", 60)))
+        if len(candles) <= warmup:
+            raise ValueError(f"backtest requires more than {warmup} candles")
+
         broker = PaperBroker(self.starting_balance, self.fee_rate, self.slippage_bps)
+        exit_mode = str(getattr(self.strategy, "exit_mode", "fixed_tp_sl"))
         peak_equity = self.starting_balance
         max_drawdown = 0.0
         closed = wins = losses = 0
@@ -45,11 +48,18 @@ class BacktestEngine:
         active_stop: float | None = None
         active_target: float | None = None
 
-        for i in range(60, len(candles)):
+        for i in range(warmup, len(candles)):
             current = candles[i]
             history = candles[:i]
 
-            if broker.position_qty > 0 and active_stop is not None and current.low <= active_stop:
+            # Fixed TP/SL strategies are allowed to exit intrabar.
+            # Dynamic EMA strategy deliberately ignores intrabar low/high and waits for a closed-bar signal.
+            if (
+                exit_mode == "fixed_tp_sl"
+                and broker.position_qty > 0
+                and active_stop is not None
+                and current.low <= active_stop
+            ):
                 broker.sell(broker.position_qty, active_stop)
                 after = broker.snapshot(active_stop).equity
                 closed += 1
@@ -57,7 +67,12 @@ class BacktestEngine:
                 losses += int(entry_equity is not None and after <= entry_equity)
                 entry_equity = None
                 active_stop = active_target = None
-            elif broker.position_qty > 0 and active_target is not None and current.high >= active_target:
+            elif (
+                exit_mode == "fixed_tp_sl"
+                and broker.position_qty > 0
+                and active_target is not None
+                and current.high >= active_target
+            ):
                 broker.sell(broker.position_qty, active_target)
                 after = broker.snapshot(active_target).equity
                 closed += 1
@@ -66,16 +81,24 @@ class BacktestEngine:
                 entry_equity = None
                 active_stop = active_target = None
             else:
+                # history contains closed candles only. Execution is simulated at next candle open.
                 signal = self.strategy.analyze(history, symbol, timeframe)
                 execution_price = current.open
                 if signal.action == TradeAction.BUY and broker.position_qty == 0:
-                    decision = self.risk.evaluate_entry(signal, broker.snapshot(execution_price).equity)
+                    decision = self.risk.evaluate_entry(
+                        signal,
+                        broker.snapshot(execution_price).equity,
+                    )
                     if decision.approved:
-                        # Rebase risk distances from signal-close onto next candle open.
-                        stop_distance = signal.entry_price - signal.stop_loss  # type: ignore[operator]
-                        target_distance = signal.take_profit - signal.entry_price  # type: ignore[operator]
+                        if signal.entry_price is None or signal.stop_loss is None:
+                            raise ValueError("approved BUY signal requires entry and stop-loss")
+                        stop_distance = signal.entry_price - signal.stop_loss
                         active_stop = execution_price - stop_distance
-                        active_target = execution_price + target_distance
+                        if signal.take_profit is not None:
+                            target_distance = signal.take_profit - signal.entry_price
+                            active_target = execution_price + target_distance
+                        else:
+                            active_target = None
                         fill = broker.buy(decision.quantity, execution_price)
                         if fill.accepted:
                             entry_equity = broker.snapshot(execution_price).equity
