@@ -60,6 +60,10 @@ class TripleEMAShortStrategy:
         )
 
         if bearish_alignment:
+            risk_distance = ema50 - close
+            take_profit = close - (2 * risk_distance)
+            if take_profit <= 0:
+                raise ValueError("calculated Triple EMA SHORT take-profit is invalid")
             return (
                 TradeSignal(
                     symbol=symbol,
@@ -69,12 +73,13 @@ class TripleEMAShortStrategy:
                     regime=MarketRegime.BEAR_TREND,
                     entry_price=close,
                     stop_loss=ema50,
-                    take_profit=None,
-                    risk_reward=None,
+                    take_profit=take_profit,
+                    risk_reward=2.0,
                     reasons=[
                         "EMA200 > EMA50 > EMA20",
                         "closed 1h candle below EMA20",
-                        "EMA50 is initial risk reference and close-based exit",
+                        "SL at EMA50 and TP at 2R",
+                        "close above EMA50 remains a strategy exit",
                     ],
                 ),
                 diagnostic,
