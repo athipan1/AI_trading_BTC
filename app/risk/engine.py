@@ -19,29 +19,41 @@ class RiskEngine:
         self.min_reward_risk = min_reward_risk
 
     def evaluate_entry(self, signal: TradeSignal, equity: float) -> RiskDecision:
-        if signal.action != TradeAction.BUY:
-            return RiskDecision(approved=False, reason="signal is not a BUY")
+        if signal.action not in {TradeAction.BUY, TradeAction.SHORT}:
+            return RiskDecision(approved=False, reason="signal is not an entry action")
         if equity <= 0:
             return RiskDecision(approved=False, reason="equity must be positive")
         if signal.entry_price is None or signal.stop_loss is None:
             return RiskDecision(approved=False, reason="entry and stop-loss are required")
-        if signal.stop_loss >= signal.entry_price:
-            return RiskDecision(approved=False, reason="long stop-loss must be below entry")
 
-        risk_per_unit = signal.entry_price - signal.stop_loss
-
-        # Fixed-TP strategies must satisfy the configured reward/risk floor.
-        # Trend-following strategies may intentionally omit TP and exit via a dynamic rule.
-        if signal.take_profit is not None:
-            if signal.take_profit <= signal.entry_price:
-                return RiskDecision(approved=False, reason="long take-profit must be above entry")
-            reward_per_unit = signal.take_profit - signal.entry_price
-            reward_risk = reward_per_unit / risk_per_unit
-            if reward_risk < self.min_reward_risk:
-                return RiskDecision(
-                    approved=False,
-                    reason=f"reward/risk {reward_risk:.2f} below minimum {self.min_reward_risk:.2f}",
-                )
+        if signal.action == TradeAction.BUY:
+            if signal.stop_loss >= signal.entry_price:
+                return RiskDecision(approved=False, reason="long stop-loss must be below entry")
+            risk_per_unit = signal.entry_price - signal.stop_loss
+            if signal.take_profit is not None:
+                if signal.take_profit <= signal.entry_price:
+                    return RiskDecision(approved=False, reason="long take-profit must be above entry")
+                reward_per_unit = signal.take_profit - signal.entry_price
+                reward_risk = reward_per_unit / risk_per_unit
+                if reward_risk < self.min_reward_risk:
+                    return RiskDecision(
+                        approved=False,
+                        reason=f"reward/risk {reward_risk:.2f} below minimum {self.min_reward_risk:.2f}",
+                    )
+        else:
+            if signal.stop_loss <= signal.entry_price:
+                return RiskDecision(approved=False, reason="short stop-loss must be above entry")
+            risk_per_unit = signal.stop_loss - signal.entry_price
+            if signal.take_profit is not None:
+                if signal.take_profit >= signal.entry_price:
+                    return RiskDecision(approved=False, reason="short take-profit must be below entry")
+                reward_per_unit = signal.entry_price - signal.take_profit
+                reward_risk = reward_per_unit / risk_per_unit
+                if reward_risk < self.min_reward_risk:
+                    return RiskDecision(
+                        approved=False,
+                        reason=f"reward/risk {reward_risk:.2f} below minimum {self.min_reward_risk:.2f}",
+                    )
 
         risk_budget = equity * self.risk_per_trade_pct
         quantity_by_risk = risk_budget / risk_per_unit
