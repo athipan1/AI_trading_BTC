@@ -21,7 +21,7 @@ def _candles(closes: list[float]) -> list[Candle]:
 
 def test_bearish_alignment_below_ema20_emits_short() -> None:
     strategy = TripleEMAShortStrategy()
-    closes = [200.0] * 150 + [150.0] * 30 + [100.0] * 20 + [80.0]
+    closes = [120.0] * 150 + [110.0] * 30 + [100.0] * 20 + [98.0]
 
     signal, diagnostic = strategy.analyze_with_diagnostic(
         _candles(closes),
@@ -35,6 +35,9 @@ def test_bearish_alignment_below_ema20_emits_short() -> None:
     assert signal.action == TradeAction.SHORT
     assert signal.regime == MarketRegime.BEAR_TREND
     assert signal.stop_loss == diagnostic.ema50
+    assert signal.take_profit is not None
+    assert signal.take_profit < signal.entry_price
+    assert signal.risk_reward == 2.0
 
 
 def test_close_above_ema50_emits_exit() -> None:
@@ -61,7 +64,8 @@ def test_risk_engine_sizes_short_with_stop_above_entry() -> None:
         regime=MarketRegime.BEAR_TREND,
         entry_price=100.0,
         stop_loss=110.0,
-        take_profit=None,
+        take_profit=80.0,
+        risk_reward=2.0,
     )
     decision = RiskEngine(risk_per_trade_pct=0.005).evaluate_entry(signal, equity=1000.0)
 
