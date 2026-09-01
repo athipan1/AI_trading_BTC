@@ -60,10 +60,10 @@ def _line_notifier(require_line: bool) -> LineMessagingNotifier | None:
 def build_trader(args: argparse.Namespace) -> FuturesShortAutoTrader:
     api_key = os.environ.get("BINANCE_FUTURES_TESTNET_API_KEY", "")
     api_secret = os.environ.get("BINANCE_FUTURES_TESTNET_API_SECRET", "")
-    max_notional = float(os.environ.get("BINANCE_FUTURES_TESTNET_MAX_NOTIONAL_USDT", "25"))
+    max_notional = float(os.environ.get("BINANCE_FUTURES_TESTNET_MAX_NOTIONAL_USDT", "100"))
     entry_notional = args.entry_notional_usdt
     if entry_notional is None:
-        entry_notional = float(os.environ.get("BTC_FUTURES_SHORT_ENTRY_NOTIONAL_USDT", "10"))
+        entry_notional = float(os.environ.get("BTC_FUTURES_SHORT_ENTRY_NOTIONAL_USDT", "55"))
     candle_limit = args.candle_limit
     if candle_limit is None:
         candle_limit = int(os.environ.get("BTC_FUTURES_SHORT_CANDLE_LIMIT", "240"))
@@ -117,8 +117,9 @@ def main() -> None:
                     f"คู่: {trader.symbol}",
                     f"Timeframe: {trader.timeframe}",
                     "Entry: EMA200 > EMA50 > EMA20 และ Close H1 < EMA20",
-                    "Exit: Close H1 > EMA50",
+                    "Exit: TP 2R / SL EMA50 / Close H1 > EMA50",
                     f"Entry cap: {trader.entry_notional_usdt:.2f} USDT",
+                    f"Exchange minimum: {preflight['minimum_entry_notional_usdt']:.2f} USDT",
                     "Max position: 1 SHORT",
                 ]
             )
