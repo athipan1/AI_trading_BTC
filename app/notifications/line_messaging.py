@@ -61,6 +61,12 @@ class LineMessagingNotifier:
         return {"sent": True, "status_code": response.status_code}
 
 
+def _tp_text(take_profit: float | None) -> str:
+    if take_profit is None:
+        return "Dynamic / ไม่มี Fixed TP"
+    return f"{take_profit:,.2f} USDT"
+
+
 def format_open_order_message(
     *,
     symbol: str,
@@ -70,23 +76,25 @@ def format_open_order_message(
     estimated_portfolio_value_usdt: float,
     entry_price: float,
     lot: float,
-    take_profit: float,
+    take_profit: float | None,
     stop_loss: float,
     binance_open_orders: int,
     tracked_positions: int,
+    strategy_id: str = "baseline",
 ) -> str:
     return "\n".join(
         [
             "Trading BTC",
             f"🟢 เปิดออเดอร์ {side.upper()}",
+            f"Strategy: {strategy_id.upper()}",
             f"คู่: {symbol}",
             f"Order ID: {order_id}",
             f"ยอด USDT ในบัญชี: {account_balance_usdt:,.2f}",
             f"มูลค่าพอร์ต BTC+USDT โดยประมาณ: {estimated_portfolio_value_usdt:,.2f} USDT",
             f"ราคาเข้า: {entry_price:,.2f} USDT",
             f"Lot: {lot:.8f} BTC",
-            f"TP: {take_profit:,.2f} USDT",
-            f"SL: {stop_loss:,.2f} USDT",
+            f"TP: {_tp_text(take_profit)}",
+            f"SL/Exit Reference: {stop_loss:,.2f} USDT",
             f"Open orders ใน Binance: {binance_open_orders}",
             f"ออเดอร์ที่ระบบกำลังติดตาม: {tracked_positions}",
         ]
@@ -103,7 +111,7 @@ def format_level_hit_message(
     entry_price: float,
     hit_price: float,
     lot: float,
-    take_profit: float,
+    take_profit: float | None,
     stop_loss: float,
     binance_open_orders: int,
     tracked_positions: int,
@@ -122,7 +130,7 @@ def format_level_hit_message(
             f"ราคาเข้า: {entry_price:,.2f} USDT",
             f"ราคาที่ตรวจพบ: {hit_price:,.2f} USDT",
             f"Lot: {lot:.8f} BTC",
-            f"TP: {take_profit:,.2f} USDT",
+            f"TP: {_tp_text(take_profit)}",
             f"SL: {stop_loss:,.2f} USDT",
             f"Open orders ใน Binance: {binance_open_orders}",
             f"ออเดอร์ที่ระบบกำลังติดตาม: {tracked_positions}",
@@ -141,9 +149,10 @@ def format_auto_exit_message(
     entry_price: float,
     exit_price: float,
     lot: float,
-    take_profit: float,
+    take_profit: float | None,
     stop_loss: float,
     tracked_positions: int,
+    strategy_id: str = "baseline",
 ) -> str:
     normalized = reason.upper()
     if normalized == "TP_HIT":
@@ -152,6 +161,9 @@ def format_auto_exit_message(
     elif normalized == "SL_HIT":
         marker = "🛑"
         label = "ถึง SL และปิดออเดอร์แล้ว"
+    elif normalized == "EMA50_CLOSE_EXIT":
+        marker = "📉"
+        label = "Close 1H ต่ำกว่า EMA50 และปิดออเดอร์แล้ว"
     else:
         marker = "🔻"
         label = "Strategy EXIT และปิดออเดอร์แล้ว"
@@ -159,6 +171,7 @@ def format_auto_exit_message(
         [
             "Trading BTC",
             f"{marker} {label}",
+            f"Strategy: {strategy_id.upper()}",
             f"คู่: {symbol}",
             f"Entry Order ID: {entry_order_id}",
             f"Exit Order ID: {exit_order_id}",
@@ -167,8 +180,8 @@ def format_auto_exit_message(
             f"ราคาเข้า: {entry_price:,.2f} USDT",
             f"ราคาปิด: {exit_price:,.2f} USDT",
             f"Lot: {lot:.8f} BTC",
-            f"TP: {take_profit:,.2f} USDT",
-            f"SL: {stop_loss:,.2f} USDT",
+            f"TP: {_tp_text(take_profit)}",
+            f"SL/Exit Reference: {stop_loss:,.2f} USDT",
             f"ออเดอร์ที่ระบบกำลังติดตาม: {tracked_positions}",
         ]
     )
