@@ -17,6 +17,7 @@ class BinanceFuturesTestnetSafetyError(RuntimeError):
 class BinanceFuturesTestnetBroker:
     TESTNET_BASE_URL = "https://demo-fapi.binance.com"
     ALLOWED_HOST = "demo-fapi.binance.com"
+    MIN_ENTRY_NOTIONAL_USDT = Decimal("50")
     INTERVAL_MS = {
         "1m": 60_000,
         "5m": 300_000,
@@ -31,14 +32,17 @@ class BinanceFuturesTestnetBroker:
         self,
         api_key: str,
         api_secret: str,
-        max_order_notional_usdt: float = 25.0,
+        max_order_notional_usdt: float = 100.0,
         session: requests.Session | None = None,
         base_url: str = TESTNET_BASE_URL,
     ) -> None:
         if not api_key.strip() or not api_secret.strip():
             raise ValueError("Binance Futures demo API key and secret are required")
-        if max_order_notional_usdt <= 0:
-            raise ValueError("max_order_notional_usdt must be positive")
+        if max_order_notional_usdt < float(self.MIN_ENTRY_NOTIONAL_USDT):
+            raise ValueError(
+                "max_order_notional_usdt must be at least "
+                f"{float(self.MIN_ENTRY_NOTIONAL_USDT):.2f} USDT for Futures demo entries"
+            )
         self.api_key = api_key.strip()
         self.api_secret = api_secret.strip()
         self.max_order_notional_usdt = float(max_order_notional_usdt)
@@ -151,6 +155,23 @@ class BinanceFuturesTestnetBroker:
                     return step
         raise RuntimeError("Futures market metadata is missing lot step size")
 
+    @classmethod
+    def _market_min_notional(cls, market: dict) -> Decimal:
+        filters = market.get("filters") or []
+        for item in filters:
+            if not isinstance(item, dict) or item.get("filterType") != "MIN_NOTIONAL":
+                continue
+            raw = item.get("notional", item.get("minNotional"))
+            if raw is None:
+                continue
+            value = Decimal(str(raw))
+            if value > 0:
+                return max(value, cls.MIN_ENTRY_NOTIONAL_USDT)
+        return cls.MIN_ENTRY_NOTIONAL_USDT
+
+    def minimum_entry_notional(self, symbol: str) -> float:
+        return float(self._market_min_notional(self._market(symbol)))
+
     @staticmethod
     def _format_decimal(value: Decimal) -> str:
         return format(value, "f")
@@ -245,16 +266,22 @@ class BinanceFuturesTestnetBroker:
             "exchange_status": market.get("status"),
             "one_way_mode": True,
             "wallet_balance_usdt": snapshot["wallet_balance_usdt"],
+            "minimum_entry_notional_usdt": float(self._market_min_notional(market)),
             "order_sent": False,
         }
 
     def _market_quantity(self, symbol: str, notional_usdt: float) -> Decimal:
-        if not 0 < notional_usdt <= self.max_order_notional_usdt:
+        market = self._market(symbol)
+        minimum = self._market_min_notional(market)
+        if Decimal(str(notional_usdt)) < minimum:
             raise ValueError(
-                f"notional_usdt must be within hard demo cap "
+                f"notional_usdt is below Futures demo minimum of {float(minimum):.2f} USDT"
+            )
+        if notional_usdt > self.max_order_notional_usdt:
+            raise ValueError(
+                f"notional_usdt exceeds hard demo cap of "
                 f"{self.max_order_notional_usdt:.2f} USDT"
             )
-        market = self._market(symbol)
         step = self._market_step_size(market)
         price = Decimal(str(self.current_price(symbol)))
         quantity = (Decimal(str(notional_usdt)) / price / step).to_integral_value(
@@ -262,6 +289,11 @@ class BinanceFuturesTestnetBroker:
         ) * step
         if quantity <= 0:
             raise ValueError("calculated Futures quantity is zero")
+        if quantity * price < minimum:
+            raise ValueError(
+                "rounded Futures quantity falls below minimum entry notional; "
+                "increase requested notional slightly"
+            )
         return quantity
 
     def _order_result(self, order: dict, symbol: str, fallback_price: float) -> dict:
