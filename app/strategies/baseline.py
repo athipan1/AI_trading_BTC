@@ -34,7 +34,10 @@ class SignalDiagnostic:
 
 
 class BaselineStrategy:
-    """Long-only Phase 1 strategy. EXIT closes an existing paper position; it never shorts."""
+    """Long-only baseline strategy using fixed TP/SL exits managed by the execution engine."""
+
+    strategy_id = "baseline"
+    exit_mode = "fixed_tp_sl"
 
     EMA_BULL_BUFFER = 1.002
     EMA_BEAR_BUFFER = 0.998
@@ -104,11 +107,6 @@ class BaselineStrategy:
         price = candles[-1].close
         diagnostic = self._diagnostic(snapshot=snapshot, price=price)
 
-        bearish_exit = (
-            diagnostic.regime == MarketRegime.BEAR_TREND
-            or (price < snapshot.ema_fast and snapshot.momentum_pct < 0)
-        )
-
         if diagnostic.buy_ready:
             stop = price - (1.5 * snapshot.atr)
             risk = price - stop
@@ -138,24 +136,13 @@ class BaselineStrategy:
             )
             return signal, diagnostic
 
-        if bearish_exit:
-            signal = TradeSignal(
-                symbol=symbol,
-                timeframe=timeframe,
-                action=TradeAction.EXIT,
-                confidence=0.7,
-                regime=diagnostic.regime,
-                reasons=["bearish trend or momentum invalidated"],
-            )
-            return signal, diagnostic
-
         signal = TradeSignal(
             symbol=symbol,
             timeframe=timeframe,
             action=TradeAction.HOLD,
             confidence=0.5,
             regime=diagnostic.regime,
-            reasons=["entry conditions not aligned"],
+            reasons=["entry conditions not aligned; exits are managed by fixed TP/SL"],
         )
         return signal, diagnostic
 
