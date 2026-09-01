@@ -13,17 +13,16 @@ from app.notifications.line_messaging import (
     format_signal_diagnostic_message,
 )
 from app.risk.engine import RiskEngine
-from app.strategies.baseline import BaselineStrategy, SignalDiagnostic
 
 
 class TestnetAutoTrader:
-    """Fail-closed long-only automatic trading loop for Binance Spot Testnet."""
+    """Fail-closed long-only automatic trader for one strategy and one symbol."""
 
     def __init__(
         self,
         *,
         broker: BinanceTestnetBroker,
-        strategy: BaselineStrategy,
+        strategy: Any,
         risk_engine: RiskEngine,
         position_store: PositionStore,
         state_store: AutoTradeStateStore,
@@ -32,6 +31,7 @@ class TestnetAutoTrader:
         timeframe: str = "1h",
         entry_notional_usdt: float = 10.0,
         candle_limit: int = 120,
+        strategy_id: str | None = None,
     ) -> None:
         if entry_notional_usdt <= 0:
             raise ValueError("entry_notional_usdt must be positive")
@@ -47,16 +47,24 @@ class TestnetAutoTrader:
         self.timeframe = timeframe
         self.entry_notional_usdt = float(entry_notional_usdt)
         self.candle_limit = candle_limit
+        self.strategy_id = (strategy_id or getattr(strategy, "strategy_id", "baseline")).lower()
+        self.exit_mode = str(getattr(strategy, "exit_mode", "fixed_tp_sl"))
 
     def _active_position(self) -> dict[str, Any] | None:
-        positions = self.position_store.active_positions(self.symbol)
+        positions = self.position_store.active_positions(
+            self.symbol,
+            strategy_id=self.strategy_id,
+        )
         if len(positions) > 1:
-            reason = f"more than one tracked OPEN position exists for {self.symbol}"
+            reason = (
+                f"more than one tracked OPEN position exists for {self.symbol} "
+                f"strategy={self.strategy_id}"
+            )
             self.state_store.halt(reason)
             raise AutoTradingHalted(reason)
         return positions[0] if positions else None
 
-    def _analyze_signal(self, candles: list[Any]) -> tuple[TradeSignal, SignalDiagnostic | None]:
+    def _analyze_signal(self, candles: list[Any]) -> tuple[TradeSignal, Any | None]:
         analyze_with_diagnostic = getattr(self.strategy, "analyze_with_diagnostic", None)
         if callable(analyze_with_diagnostic):
             signal, diagnostic = analyze_with_diagnostic(
@@ -71,10 +79,11 @@ class TestnetAutoTrader:
         self,
         *,
         signal: TradeSignal,
-        diagnostic: SignalDiagnostic | None,
+        diagnostic: Any | None,
         candle_ms: int,
     ) -> str:
-        if diagnostic is None:
+        # Existing LINE diagnostic formatter is specific to BaselineStrategy.
+        if self.strategy_id != "baseline" or diagnostic is None:
             return "not_available"
         if self.notifier is None:
             return "not_configured"
@@ -108,10 +117,10 @@ class TestnetAutoTrader:
     @staticmethod
     def _attach_diagnostic(
         result: dict[str, Any],
-        diagnostic: SignalDiagnostic | None,
+        diagnostic: Any | None,
         line_status: str,
     ) -> dict[str, Any]:
-        if diagnostic is not None:
+        if diagnostic is not None and hasattr(diagnostic, "to_dict"):
             result["diagnostic"] = diagnostic.to_dict()
         result["diagnostic_line_notification"] = line_status
         return result
@@ -137,10 +146,15 @@ class TestnetAutoTrader:
                     ),
                     entry_price=float(position["entry_price"]),
                     lot=float(position["quantity"]),
-                    take_profit=float(position["take_profit"]),
+                    take_profit=(
+                        float(position["take_profit"])
+                        if position.get("take_profit") is not None
+                        else None
+                    ),
                     stop_loss=float(position["stop_loss"]),
                     binance_open_orders=int(snapshot["open_orders_count"]),
                     tracked_positions=self.position_store.count_active(),
+                    strategy_id=self.strategy_id,
                 )
             )
         except Exception as exc:
@@ -171,24 +185,41 @@ class TestnetAutoTrader:
                     entry_price=float(entry_position["entry_price"]),
                     exit_price=float(exit_order["average"]),
                     lot=float(exit_order["filled"]),
-                    take_profit=float(entry_position["take_profit"]),
+                    take_profit=(
+                        float(entry_position["take_profit"])
+                        if entry_position.get("take_profit") is not None
+                        else None
+                    ),
                     stop_loss=float(entry_position["stop_loss"]),
                     tracked_positions=self.position_store.count_active(),
+                    strategy_id=self.strategy_id,
                 )
             )
         except Exception as exc:
             return f"warning:{exc.__class__.__name__}"
         return "sent"
 
-    @staticmethod
-    def _levels_from_signal(signal: TradeSignal, fill_price: float) -> tuple[float, float]:
-        if signal.entry_price is None or signal.stop_loss is None or signal.take_profit is None:
-            raise AutoTradingHalted("approved BUY signal is missing risk levels")
+    def _levels_from_signal(
+        self,
+        signal: TradeSignal,
+        fill_price: float,
+    ) -> tuple[float | None, float]:
+        if signal.entry_price is None or signal.stop_loss is None:
+            raise AutoTradingHalted("approved BUY signal is missing entry or stop-loss")
         stop_pct = (signal.entry_price - signal.stop_loss) / signal.entry_price
+        if not 0 < stop_pct < 1:
+            raise AutoTradingHalted("approved BUY signal contains invalid stop-loss distance")
+        stop_loss = fill_price * (1 - stop_pct)
+
+        if signal.take_profit is None:
+            if self.exit_mode == "fixed_tp_sl":
+                raise AutoTradingHalted("fixed TP/SL strategy BUY is missing take-profit")
+            return None, stop_loss
+
         target_pct = (signal.take_profit - signal.entry_price) / signal.entry_price
-        if not 0 < stop_pct < 1 or target_pct <= 0:
-            raise AutoTradingHalted("approved BUY signal contains invalid relative risk levels")
-        return fill_price * (1 + target_pct), fill_price * (1 - stop_pct)
+        if target_pct <= 0:
+            raise AutoTradingHalted("approved BUY signal contains invalid take-profit distance")
+        return fill_price * (1 + target_pct), stop_loss
 
     def _enter_position(
         self,
@@ -200,7 +231,7 @@ class TestnetAutoTrader:
         self.state_store.begin_order_attempt(
             action="BUY",
             symbol=self.symbol,
-            reason="STRATEGY_BUY",
+            reason=f"{self.strategy_id.upper()}_BUY",
             candle_ms=candle_ms,
         )
         try:
@@ -228,6 +259,8 @@ class TestnetAutoTrader:
             quantity=float(quantity),
             take_profit=take_profit,
             stop_loss=stop_loss,
+            strategy_id=self.strategy_id,
+            exit_mode=self.exit_mode,
         )
         snapshot = self.broker.account_snapshot(self.symbol)
         line_status = self._send_open_notification(
@@ -239,6 +272,7 @@ class TestnetAutoTrader:
         self.state_store.mark_candle_processed(candle_ms)
         return {
             "event": "BUY_FILLED",
+            "strategy_id": self.strategy_id,
             "symbol": self.symbol,
             "timeframe": self.timeframe,
             "candle_ms": candle_ms,
@@ -297,6 +331,7 @@ class TestnetAutoTrader:
         self.state_store.mark_candle_processed(candle_ms)
         return {
             "event": "POSITION_CLOSED",
+            "strategy_id": self.strategy_id,
             "reason": reason,
             "symbol": self.symbol,
             "timeframe": self.timeframe,
@@ -318,9 +353,11 @@ class TestnetAutoTrader:
         candle_ms = candles[-1].timestamp_ms
         position = self._active_position()
 
-        if position is not None:
+        # Baseline exits are fixed TP/SL and may execute immediately on live price.
+        if position is not None and self.exit_mode == "fixed_tp_sl":
             live_price = self.broker.current_price(self.symbol)
-            if live_price >= float(position["take_profit"]):
+            take_profit = position.get("take_profit")
+            if take_profit is not None and live_price >= float(take_profit):
                 return self._exit_position(
                     position=position,
                     reason="TP_HIT",
@@ -336,6 +373,7 @@ class TestnetAutoTrader:
         if self.state_store.last_processed_candle_ms() == candle_ms:
             return {
                 "event": "WAIT_NEXT_CANDLE",
+                "strategy_id": self.strategy_id,
                 "symbol": self.symbol,
                 "timeframe": self.timeframe,
                 "candle_ms": candle_ms,
@@ -349,11 +387,27 @@ class TestnetAutoTrader:
             candle_ms=candle_ms,
         )
 
+        # Dynamic EMA strategy updates its displayed/risk reference once per closed candle.
+        if (
+            position is not None
+            and self.exit_mode == "close_below_ema50"
+            and signal.stop_loss is not None
+        ):
+            position = self.position_store.update_stop_loss(
+                str(position["order_id"]),
+                float(signal.stop_loss),
+            )
+
         if position is not None:
             if signal.action == TradeAction.EXIT:
+                reason = (
+                    "EMA50_CLOSE_EXIT"
+                    if self.exit_mode == "close_below_ema50"
+                    else "STRATEGY_EXIT"
+                )
                 result = self._exit_position(
                     position=position,
-                    reason="STRATEGY_EXIT",
+                    reason=reason,
                     candle_ms=candle_ms,
                 )
                 result["signal"] = signal.model_dump(mode="json")
@@ -361,10 +415,12 @@ class TestnetAutoTrader:
             self.state_store.mark_candle_processed(candle_ms)
             result = {
                 "event": "POSITION_HELD",
+                "strategy_id": self.strategy_id,
                 "symbol": self.symbol,
                 "timeframe": self.timeframe,
                 "candle_ms": candle_ms,
                 "signal": signal.model_dump(mode="json"),
+                "position": position,
                 "tracked_positions": self.position_store.count_active(),
             }
             return self._attach_diagnostic(result, diagnostic, diagnostic_line_status)
@@ -373,6 +429,7 @@ class TestnetAutoTrader:
             self.state_store.mark_candle_processed(candle_ms)
             result = {
                 "event": "NO_TRADE",
+                "strategy_id": self.strategy_id,
                 "symbol": self.symbol,
                 "timeframe": self.timeframe,
                 "candle_ms": candle_ms,
@@ -387,6 +444,7 @@ class TestnetAutoTrader:
             self.state_store.mark_candle_processed(candle_ms)
             result = {
                 "event": "RISK_BLOCKED",
+                "strategy_id": self.strategy_id,
                 "symbol": self.symbol,
                 "timeframe": self.timeframe,
                 "candle_ms": candle_ms,
@@ -407,6 +465,7 @@ class TestnetAutoTrader:
             self.state_store.mark_candle_processed(candle_ms)
             result = {
                 "event": "RISK_BLOCKED",
+                "strategy_id": self.strategy_id,
                 "symbol": self.symbol,
                 "timeframe": self.timeframe,
                 "candle_ms": candle_ms,
@@ -422,6 +481,7 @@ class TestnetAutoTrader:
             self.state_store.mark_candle_processed(candle_ms)
             result = {
                 "event": "RISK_BLOCKED",
+                "strategy_id": self.strategy_id,
                 "symbol": self.symbol,
                 "timeframe": self.timeframe,
                 "candle_ms": candle_ms,
