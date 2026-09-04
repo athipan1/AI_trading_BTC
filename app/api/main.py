@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from app.config import get_settings
 from app.execution.paper import PaperBroker
 from app.integrations.hermes3d.adapter import Hermes3DReadOnlyAdapter
+from app.integrations.hermes3d.events import Hermes3DEventStream
 from app.integrations.hermes3d.router import build_hermes3d_router
 from app.market_data.service import MarketDataError, MarketDataService
 from app.risk.engine import RiskEngine
@@ -33,7 +34,18 @@ hermes3d = Hermes3DReadOnlyAdapter.from_paths(
     timeframe=settings.timeframe,
     market_data_limit=settings.market_data_limit,
 )
-app.include_router(build_hermes3d_router(hermes3d))
+hermes3d_events = Hermes3DEventStream(
+    adapter=hermes3d,
+    spot_position_store=hermes3d.spot_position_store,
+    futures_position_store=hermes3d.futures_position_store,
+    auto_state_paths={
+        "baseline": settings.hermes3d_baseline_state_store,
+        "triple_ema": settings.hermes3d_triple_ema_state_store,
+        "triple_ema_short": settings.hermes3d_futures_short_state_store,
+    },
+    interval_seconds=settings.hermes3d_event_interval_seconds,
+)
+app.include_router(build_hermes3d_router(hermes3d, hermes3d_events))
 
 
 @app.get("/health")
