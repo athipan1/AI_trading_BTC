@@ -4,6 +4,8 @@ from fastapi import FastAPI, HTTPException
 
 from app.config import get_settings
 from app.execution.paper import PaperBroker
+from app.integrations.hermes3d.adapter import Hermes3DReadOnlyAdapter
+from app.integrations.hermes3d.router import build_hermes3d_router
 from app.market_data.service import MarketDataError, MarketDataService
 from app.risk.engine import RiskEngine
 from app.strategies.baseline import BaselineStrategy
@@ -21,6 +23,17 @@ risk = RiskEngine(
 )
 broker = PaperBroker(settings.starting_balance, settings.fee_rate, settings.slippage_bps)
 cycle = TradingCycle(market_data, strategy, risk, broker)
+hermes3d = Hermes3DReadOnlyAdapter.from_paths(
+    market_data=market_data,
+    risk_engine=risk,
+    paper_broker=broker,
+    spot_position_store_path=settings.hermes3d_spot_position_store,
+    futures_position_store_path=settings.hermes3d_futures_position_store,
+    symbol=settings.symbol,
+    timeframe=settings.timeframe,
+    market_data_limit=settings.market_data_limit,
+)
+app.include_router(build_hermes3d_router(hermes3d))
 
 
 @app.get("/health")
