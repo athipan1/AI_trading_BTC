@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     hermes3d_baseline_state_store: str = "state/binance-testnet-auto-baseline.json"
     hermes3d_triple_ema_state_store: str = "state/binance-testnet-auto-triple-ema.json"
     hermes3d_futures_short_state_store: str = "state/binance-futures-testnet-short-auto.json"
-    hermes3d_event_interval_seconds: float = Field(default=1.0, gt=0, le=10)
+    hermes3d_event_journal: str = "state/hermes3d-events.jsonl"
+    hermes3d_event_interval_seconds: float = Field(default=0.25, gt=0, le=10)
 
 
 @lru_cache
