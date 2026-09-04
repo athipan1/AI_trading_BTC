@@ -3,34 +3,33 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Protocol
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
-from app.integrations.hermes3d.adapter import Hermes3DReadOnlyAdapter
 from app.integrations.hermes3d.events import Hermes3DEventStream
-from app.market_data.service import MarketDataError
+
+
+class Hermes3DRuntimeReader(Protocol):
+    def registry(self) -> dict[str, Any]: ...
+
+    def state(self) -> dict[str, Any]: ...
 
 
 def build_hermes3d_router(
-    adapter: Hermes3DReadOnlyAdapter,
+    reader: Hermes3DRuntimeReader,
     event_stream: Hermes3DEventStream | None = None,
 ) -> APIRouter:
     router = APIRouter(tags=["hermes3d"])
 
     @router.get("/registry")
     def registry() -> dict[str, Any]:
-        return adapter.registry()
+        return reader.registry()
 
     @router.get("/state")
     def state() -> dict[str, Any]:
-        try:
-            return adapter.state()
-        except MarketDataError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return reader.state()
 
     if event_stream is not None:
 

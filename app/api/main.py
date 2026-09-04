@@ -4,11 +4,12 @@ from fastapi import FastAPI, HTTPException
 
 from app.config import get_settings
 from app.execution.paper import PaperBroker
-from app.integrations.hermes3d.adapter import Hermes3DReadOnlyAdapter
 from app.integrations.hermes3d.events import Hermes3DEventStream
 from app.integrations.hermes3d.journal import Hermes3DEventJournal
+from app.integrations.hermes3d.projection import Hermes3DJournalStateProjection
 from app.integrations.hermes3d.router import build_hermes3d_router
 from app.market_data.service import MarketDataError, MarketDataService
+from app.monitoring.position_store import PositionStore
 from app.risk.engine import RiskEngine
 from app.strategies.baseline import BaselineStrategy
 from app.trading_cycle import TradingCycle
@@ -25,29 +26,32 @@ risk = RiskEngine(
 )
 broker = PaperBroker(settings.starting_balance, settings.fee_rate, settings.slippage_bps)
 cycle = TradingCycle(market_data, strategy, risk, broker)
-hermes3d = Hermes3DReadOnlyAdapter.from_paths(
-    market_data=market_data,
-    risk_engine=risk,
-    paper_broker=broker,
-    spot_position_store_path=settings.hermes3d_spot_position_store,
-    futures_position_store_path=settings.hermes3d_futures_position_store,
+
+hermes3d_journal = Hermes3DEventJournal(settings.hermes3d_event_journal)
+hermes3d_spot_positions = PositionStore(settings.hermes3d_spot_position_store)
+hermes3d_futures_positions = PositionStore(settings.hermes3d_futures_position_store)
+hermes3d_auto_state_paths = {
+    "baseline": settings.hermes3d_baseline_state_store,
+    "triple_ema": settings.hermes3d_triple_ema_state_store,
+    "triple_ema_short": settings.hermes3d_futures_short_state_store,
+}
+hermes3d_projection = Hermes3DJournalStateProjection(
+    journal=hermes3d_journal,
+    spot_position_store=hermes3d_spot_positions,
+    futures_position_store=hermes3d_futures_positions,
+    auto_state_paths=hermes3d_auto_state_paths,
     symbol=settings.symbol,
     timeframe=settings.timeframe,
-    market_data_limit=settings.market_data_limit,
 )
 hermes3d_events = Hermes3DEventStream(
-    adapter=hermes3d,
-    journal=Hermes3DEventJournal(settings.hermes3d_event_journal),
-    spot_position_store=hermes3d.spot_position_store,
-    futures_position_store=hermes3d.futures_position_store,
-    auto_state_paths={
-        "baseline": settings.hermes3d_baseline_state_store,
-        "triple_ema": settings.hermes3d_triple_ema_state_store,
-        "triple_ema_short": settings.hermes3d_futures_short_state_store,
-    },
+    state_reader=hermes3d_projection,
+    journal=hermes3d_journal,
+    spot_position_store=hermes3d_spot_positions,
+    futures_position_store=hermes3d_futures_positions,
+    auto_state_paths=hermes3d_auto_state_paths,
     interval_seconds=settings.hermes3d_event_interval_seconds,
 )
-app.include_router(build_hermes3d_router(hermes3d, hermes3d_events))
+app.include_router(build_hermes3d_router(hermes3d_projection, hermes3d_events))
 
 
 @app.get("/health")
