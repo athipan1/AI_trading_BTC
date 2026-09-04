@@ -62,6 +62,8 @@ class Hermes3DEventStream:
 
     @staticmethod
     def _fingerprint(value: Any) -> str:
+        if isinstance(value, dict):
+            value = {key: item for key, item in value.items() if key != "generated_at"}
         encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
         return sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -175,18 +177,23 @@ class Hermes3DEventStream:
                 key: self._fingerprint(event.payload) for key, event in current.items()
             }
 
-            snapshot = current.get("snapshot")
-            if snapshot is not None:
-                if first or previous.get("snapshot") != fingerprints["snapshot"]:
+            if first:
+                snapshot = current.get("snapshot")
+                if snapshot is not None:
                     yield snapshot.to_dict()
+                for key, event in current.items():
+                    if key == "snapshot" or key.startswith("closed:"):
+                        continue
+                    yield event.to_dict()
+                previous = fingerprints
+                first = False
+                await asyncio.sleep(self.interval_seconds)
+                continue
 
             for key, event in current.items():
-                if key == "snapshot":
-                    continue
                 fingerprint = fingerprints[key]
                 if previous.get(key) != fingerprint:
                     yield event.to_dict()
 
             previous = fingerprints
-            first = False
             await asyncio.sleep(self.interval_seconds)
