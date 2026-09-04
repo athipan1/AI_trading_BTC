@@ -6,7 +6,7 @@ from typing import Any, Protocol
 
 from app.execution.paper import PaperBroker
 from app.market_data.service import MarketDataService
-from app.models import Candle, TradeAction, TradeSignal
+from app.models import Candle, TradeAction
 from app.monitoring.position_store import PositionStore
 from app.risk.engine import RiskEngine
 from app.strategies.baseline import BaselineStrategy
@@ -123,10 +123,7 @@ class Hermes3DReadOnlyAdapter:
             "entry_signals": len(entries),
             "approved_entries": sum(bool(item["risk"]["approved"]) for item in entries),
             "execution_enabled": False,
-            "decisions": {
-                item["strategy_id"]: item["risk"]
-                for item in strategy_states
-            },
+            "decisions": {item["strategy_id"]: item["risk"] for item in strategy_states},
         }
 
     def state(self) -> dict[str, Any]:
