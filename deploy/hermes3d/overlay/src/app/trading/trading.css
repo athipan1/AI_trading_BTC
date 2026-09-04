@@ -1,0 +1,278 @@
+.trading-room-shell {
+  min-height: 100vh;
+  padding: 32px;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(27, 94, 76, 0.24), transparent 28%),
+    radial-gradient(circle at 85% 10%, rgba(64, 82, 140, 0.22), transparent 24%),
+    #0d1117;
+  color: #eef2f6;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.trading-room-header,
+.section-heading,
+.panel-heading,
+.agent-topline,
+.trading-room-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.trading-room-header {
+  margin: 0 auto 24px;
+  max-width: 1400px;
+}
+
+.trading-room-header h1,
+.section-heading h2,
+.agent-card h3 {
+  margin: 0;
+}
+
+.trading-room-header h1 {
+  font-size: clamp(32px, 5vw, 60px);
+  letter-spacing: -0.04em;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #8fa4b8;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.subtitle,
+.agent-detail {
+  color: #9eabb8;
+}
+
+.subtitle {
+  max-width: 760px;
+  margin: 10px 0 0;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.readonly-badge,
+.office-link,
+.refresh-label {
+  border: 1px solid #33404f;
+  border-radius: 999px;
+  padding: 9px 13px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.readonly-badge {
+  color: #ffd479;
+  background: rgba(92, 65, 20, 0.28);
+}
+
+.office-link {
+  color: #dcecff;
+  text-decoration: none;
+  background: rgba(40, 67, 93, 0.38);
+}
+
+.error-banner {
+  max-width: 1400px;
+  margin: 0 auto 20px;
+  padding: 14px 16px;
+  border: 1px solid #7c3333;
+  border-radius: 14px;
+  background: rgba(92, 30, 30, 0.36);
+  color: #ffd1d1;
+}
+
+.summary-grid,
+.agents-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.summary-grid {
+  max-width: 1400px;
+  margin: 0 auto;
+  grid-template-columns: 1.5fr 1fr 1fr;
+}
+
+.panel,
+.agent-card {
+  border: 1px solid #27313d;
+  border-radius: 18px;
+  background: rgba(18, 24, 32, 0.88);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+}
+
+.panel {
+  padding: 20px;
+}
+
+.panel-heading {
+  margin-bottom: 16px;
+  color: #9eabb8;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.panel-heading strong {
+  color: #e9eef4;
+}
+
+.price-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.price-line strong {
+  font-size: clamp(24px, 3vw, 38px);
+  letter-spacing: -0.03em;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric-grid.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.metric-grid div {
+  padding: 12px;
+  border-radius: 12px;
+  background: #121923;
+}
+
+.metric-grid span,
+.metric-grid strong {
+  display: block;
+}
+
+.metric-grid span {
+  margin-bottom: 5px;
+  color: #748498;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.agents-section {
+  max-width: 1400px;
+  margin: 30px auto 0;
+}
+
+.section-heading {
+  margin-bottom: 14px;
+}
+
+.refresh-label {
+  color: #8fa4b8;
+}
+
+.agents-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.agent-card {
+  padding: 18px;
+}
+
+.agent-topline {
+  justify-content: flex-start;
+}
+
+.agent-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #5ed39a;
+  box-shadow: 0 0 14px rgba(94, 211, 154, 0.55);
+}
+
+.agent-role {
+  color: #718196;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.agent-card h3 {
+  margin-top: 12px;
+  font-size: 20px;
+}
+
+.agent-status {
+  display: inline-block;
+  margin: 12px 0 4px;
+  border-radius: 8px;
+  padding: 6px 9px;
+  background: #172130;
+  color: #b9d6f3;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.agent-card p {
+  margin: 7px 0 0;
+  font-size: 13px;
+}
+
+.trading-room-footer {
+  max-width: 1400px;
+  margin: 28px auto 0;
+  padding-top: 18px;
+  border-top: 1px solid #27313d;
+  color: #718196;
+  font-size: 12px;
+}
+
+@media (max-width: 1000px) {
+  .summary-grid,
+  .agents-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .market-panel {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 720px) {
+  .trading-room-shell {
+    padding: 20px;
+  }
+
+  .trading-room-header,
+  .section-heading,
+  .trading-room-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .summary-grid,
+  .agents-grid,
+  .metric-grid,
+  .metric-grid.compact {
+    grid-template-columns: 1fr;
+  }
+
+  .market-panel {
+    grid-column: auto;
+  }
+}
