@@ -19,16 +19,11 @@ class MarketDataReader(Protocol):
 
 
 class Hermes3DReadOnlyAdapter:
-    """Read-only projection of trading state for Hermes3D.
-
-    The adapter intentionally exposes no execution method and cannot place, cancel,
-    or modify orders. It only reads market data, evaluates existing strategies and
-    risk rules, and loads locally tracked positions.
-    """
+    """Read-only projection of trading state for Hermes3D."""
 
     MIN_STRATEGY_CANDLES = 201
     RUNTIME_NAME = "AI Trading BTC"
-    RUNTIME_VERSION = "phase-1.5"
+    RUNTIME_VERSION = "phase-1.6"
 
     def __init__(
         self,
@@ -85,7 +80,28 @@ class Hermes3DReadOnlyAdapter:
         return {
             "runtime": "ai-trading-btc",
             "mode": "read_only",
-            "capabilities": ["market_state", "strategies", "risk", "positions"],
+            "capabilities": [
+                "market_state",
+                "strategies",
+                "risk",
+                "positions",
+                "realtime_events",
+                "sse",
+                "websocket",
+            ],
+            "event_types": [
+                "BUY_READY",
+                "SHORT_READY",
+                "RISK_PASS",
+                "ORDER_OPEN",
+                "TP_HIT",
+                "SL_HIT",
+                "CIRCUIT_BREAKER",
+            ],
+            "event_endpoints": {
+                "sse": "/events/stream",
+                "websocket": "/events/ws",
+            },
             "trade_execution": False,
             "models": {
                 "readonly-observer": {
@@ -140,8 +156,14 @@ class Hermes3DReadOnlyAdapter:
         risk = strategy_state["risk"]
         action = str(signal["action"])
         is_entry = action in {TradeAction.BUY.value, TradeAction.SHORT.value}
+        if action == TradeAction.BUY.value:
+            status = "BUY_READY"
+        elif action == TradeAction.SHORT.value:
+            status = "SHORT_READY"
+        else:
+            status = action
         return {
-            "status": "ENTRY_READY" if is_entry else action,
+            "status": status,
             "signal": action,
             "regime": signal["regime"],
             "risk_approved": bool(risk["approved"]) if is_entry else False,
@@ -183,7 +205,7 @@ class Hermes3DReadOnlyAdapter:
             "triple_ema_short": self._strategy_status(strategy_by_id["triple_ema_short"]),
             "risk-manager": {
                 "status": (
-                    "PASS"
+                    "RISK_PASS"
                     if risk_summary["entry_signals"] > 0
                     and risk_summary["approved_entries"] == risk_summary["entry_signals"]
                     else "WATCH"
@@ -194,7 +216,7 @@ class Hermes3DReadOnlyAdapter:
                 ),
             },
             "positions": {
-                "status": "OPEN" if open_positions else "FLAT",
+                "status": "ORDER_OPEN" if open_positions else "FLAT",
                 "detail": f"{open_positions} tracked testnet positions",
             },
         }
@@ -207,7 +229,7 @@ class Hermes3DReadOnlyAdapter:
                 "name": self.RUNTIME_NAME,
                 "version": self.RUNTIME_VERSION,
                 "vendor": "athipan1",
-                "status": "read_only",
+                "status": "read_only_realtime",
                 "active_model": "readonly-observer",
                 "governance": "risk-engine-enforced",
             },
@@ -226,6 +248,7 @@ class Hermes3DReadOnlyAdapter:
                 "strategy_read": True,
                 "risk_read": True,
                 "positions_read": True,
+                "events_read": True,
                 "trade_execution": False,
                 "order_cancel": False,
                 "position_modify": False,
