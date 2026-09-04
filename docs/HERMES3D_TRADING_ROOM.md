@@ -1,6 +1,6 @@
 # Hermes3D Trading Room
 
-Phase 1.6.2 runs the real Hermes3D Studio against the AI Trading BTC FastAPI runtime through Hermes3D's `custom` runtime seam and keeps the observability path independent from CCXT/exchange access.
+Phase 1.7 runs the real Hermes3D Studio against the AI Trading BTC FastAPI runtime through Hermes3D's `custom` runtime seam, keeps the observability path independent from CCXT/exchange access, and maps normalized trading events into the existing Hermes3D office agent state machine.
 
 ## Safety boundary
 
@@ -70,7 +70,7 @@ Hermes3D read-only sidecar
 state/hermes3d-events.jsonl
               |
               v
-FastAPI SSE/WebSocket -> Hermes3D Trading Room
+FastAPI SSE/WebSocket -> Hermes3D Trading Room / 3D Office
 ```
 
 Normalized event types include:
@@ -84,6 +84,25 @@ Normalized event types include:
 - `CIRCUIT_BREAKER`
 
 A `STATE_SNAPSHOT` is sent when a client connects and again after observable state changes so the Trading Room remains synchronized without browser polling.
+
+## Phase 1.7 realtime 3D agent animation mapping
+
+The `/office` route now mounts `TradingOfficeRealtimeBridge` inside Hermes3D's existing `AgentStoreProvider`. The bridge holds one same-origin `EventSource` connection to the read-only trading event endpoint and maps trading events into the existing Hermes3D agent `status`, `runId`, `streamText`, and activity fields. Hermes3D already interprets a running agent as working in the 3D scene, so this extends the pinned architecture rather than adding a parallel renderer.
+
+Event mapping:
+
+```text
+BUY_READY / SHORT_READY -> strategy agent RUNNING for 8s
+RISK_PASS               -> risk-manager RUNNING for 7s + strategy pulse for 4s
+ORDER_OPEN              -> positions RUNNING for 10s
+TP_HIT                  -> positions RUNNING for 12s
+SL_HIT                  -> positions ERROR for 12s
+CIRCUIT_BREAKER         -> risk-manager ERROR until state/runtime recovery
+```
+
+The transient mappings automatically return agents to `idle` after their display window. `CIRCUIT_BREAKER` is intentionally persistent so the safety halt remains visually obvious.
+
+The bridge does not call the FastAPI order routes, does not import broker/execution code, does not read API credentials, and does not mutate trading state. It only updates browser-side Hermes3D presentation state from the read-only SSE stream.
 
 ## Shared state paths for Termux + Ubuntu/proot
 
@@ -139,7 +158,7 @@ Hermes3D reads the `active` map from `/state` and materializes these observer ag
 - `risk-manager`
 - `positions`
 
-The `/trading` room holds one same-origin SSE connection and updates agent status as normalized trading events arrive. The backend also exposes the equivalent WebSocket stream for future 3D-office runtime-event integration.
+The `/trading` room and `/office` 3D scene each hold one same-origin SSE connection. Both consume the same normalized event stream, while `/office` translates events into the native Hermes3D working/error animation states.
 
 ## Event producers
 
