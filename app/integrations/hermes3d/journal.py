@@ -17,6 +17,18 @@ class Hermes3DEventJournal:
     def _now() -> str:
         return datetime.now(UTC).isoformat()
 
+    @staticmethod
+    def _decode_rows(rows: list[bytes]) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                payload = json.loads(row.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if isinstance(payload, dict):
+                records.append(payload)
+        return records
+
     def publish(
         self,
         *,
@@ -160,12 +172,21 @@ class Hermes3DEventJournal:
             handle.seek(offset)
             rows = handle.readlines()
             next_offset = handle.tell()
-        records: list[dict[str, Any]] = []
-        for row in rows:
-            try:
-                payload = json.loads(row.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                continue
-            if isinstance(payload, dict):
-                records.append(payload)
-        return next_offset, records
+        return next_offset, self._decode_rows(rows)
+
+    def read_recent(self, max_bytes: int = 1_048_576) -> list[dict[str, Any]]:
+        """Read a bounded suffix of the journal without loading an unbounded file."""
+        if max_bytes <= 0:
+            raise ValueError("max_bytes must be positive")
+        try:
+            current_size = self.path.stat().st_size
+        except FileNotFoundError:
+            return []
+
+        start = max(0, current_size - max_bytes)
+        with self.path.open("rb") as handle:
+            handle.seek(start)
+            if start:
+                handle.readline()  # discard a potentially partial JSONL record
+            rows = handle.readlines()
+        return self._decode_rows(rows)
