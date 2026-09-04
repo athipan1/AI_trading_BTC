@@ -21,11 +21,7 @@ type AgentStatus = {
 type RuntimeState = {
   generated_at?: string;
   read_only?: boolean;
-  runtime?: {
-    name?: string;
-    version?: string;
-    status?: string;
-  };
+  runtime?: { name?: string; version?: string; status?: string };
   agent_statuses?: Record<string, AgentStatus>;
   market?: {
     symbol?: string;
@@ -63,6 +59,13 @@ type Registry = {
   trade_execution?: boolean;
 };
 
+type RuntimeEvent = {
+  event: string;
+  agent_id: string;
+  generated_at?: string;
+  payload?: Record<string, unknown>;
+};
+
 const money = (value?: number): string =>
   typeof value === "number"
     ? value.toLocaleString(undefined, { maximumFractionDigits: 2 })
@@ -71,58 +74,102 @@ const money = (value?: number): string =>
 const number = (value?: number, digits = 2): string =>
   typeof value === "number" ? value.toFixed(digits) : "-";
 
-async function fetchResource<T>(resource: "state" | "registry"): Promise<T> {
-  const response = await fetch(`/api/trading-runtime?resource=${resource}`, {
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Failed to load ${resource}`);
-  }
-  return (await response.json()) as T;
+async function fetchRegistry(): Promise<Registry> {
+  const response = await fetch("/api/trading-runtime?resource=registry", { cache: "no-store" });
+  if (!response.ok) throw new Error(await response.text());
+  return (await response.json()) as Registry;
 }
+
+const eventDetail = (event: RuntimeEvent): string => {
+  const payload = event.payload ?? {};
+  if (event.event === "CIRCUIT_BREAKER") {
+    return String(payload.reason ?? "Automatic trading halted by safety state");
+  }
+  if (event.event === "ORDER_OPEN") {
+    return `Order ${String(payload.order_id ?? "-")} is open`;
+  }
+  if (event.event === "TP_HIT" || event.event === "SL_HIT") {
+    return `${event.event} at ${String(payload.exit_price ?? payload.hit_price ?? "-")}`;
+  }
+  if (event.event === "RISK_PASS") {
+    return `Risk gate approved ${String(payload.strategy_id ?? "strategy")}`;
+  }
+  if (event.event === "BUY_READY" || event.event === "SHORT_READY") {
+    return `${String(payload.strategy_id ?? "strategy")} signal is ready`;
+  }
+  return "Realtime state update";
+};
 
 export default function TradingRoomPage() {
   const [state, setState] = useState<RuntimeState | null>(null);
   const [registry, setRegistry] = useState<Registry | null>(null);
+  const [liveStatuses, setLiveStatuses] = useState<Record<string, AgentStatus>>({});
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [streamState, setStreamState] = useState("CONNECTING");
+  const [lastEvent, setLastEvent] = useState<string>("STATE_SNAPSHOT");
 
   useEffect(() => {
     let active = true;
+    void fetchRegistry()
+      .then((nextRegistry) => {
+        if (active) setRegistry(nextRegistry);
+      })
+      .catch((registryError) => {
+        if (active) setError(registryError instanceof Error ? registryError.message : "Registry unavailable");
+      });
 
-    const refresh = async () => {
+    const source = new EventSource("/api/trading-runtime?resource=events");
+    source.onopen = () => {
+      if (!active) return;
+      setStreamState("LIVE");
+      setError(null);
+    };
+    source.onmessage = (message) => {
+      if (!active) return;
       try {
-        const [nextState, nextRegistry] = await Promise.all([
-          fetchResource<RuntimeState>("state"),
-          fetchResource<Registry>("registry"),
-        ]);
-        if (!active) return;
-        setState(nextState);
-        setRegistry(nextRegistry);
+        const event = JSON.parse(message.data) as RuntimeEvent;
+        setLastEvent(event.event);
         setLastRefresh(new Date());
-        setError(null);
-      } catch (refreshError) {
-        if (!active) return;
-        setError(refreshError instanceof Error ? refreshError.message : "Runtime unavailable");
+        if (event.event === "STATE_SNAPSHOT") {
+          setState((event.payload ?? {}) as RuntimeState);
+          return;
+        }
+        if (event.event === "STREAM_ERROR") {
+          setError(String(event.payload?.error ?? "Realtime stream error"));
+          return;
+        }
+        setLiveStatuses((current) => ({
+          ...current,
+          [event.agent_id]: {
+            ...(current[event.agent_id] ?? {}),
+            status: event.event,
+            detail: eventDetail(event),
+            risk_approved: event.event === "RISK_PASS" ? true : current[event.agent_id]?.risk_approved,
+          },
+        }));
+      } catch {
+        setError("Invalid realtime event received from AI Trading BTC");
       }
     };
+    source.onerror = () => {
+      if (!active) return;
+      setStreamState("RECONNECTING");
+    };
 
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 5_000);
     return () => {
       active = false;
-      window.clearInterval(timer);
+      source.close();
     };
   }, []);
 
   const agents = registry?.agents ?? [];
-  const openPositions = useMemo(() => {
-    return (
+  const openPositions = useMemo(
+    () =>
       (state?.positions?.spot_testnet?.length ?? 0) +
-      (state?.positions?.futures_testnet_short?.length ?? 0)
-    );
-  }, [state]);
+      (state?.positions?.futures_testnet_short?.length ?? 0),
+    [state]
+  );
 
   return (
     <main className="trading-room-shell">
@@ -131,11 +178,12 @@ export default function TradingRoomPage() {
           <p className="eyebrow">Hermes3D · AI Trading BTC</p>
           <h1>BTC Trading Room</h1>
           <p className="subtitle">
-            Live read-only control room. Market, strategies, risk and positions refresh every 5 seconds.
+            Realtime read-only control room over Server-Sent Events. No browser polling and no execution surface.
           </p>
         </div>
         <div className="header-actions">
           <span className="readonly-badge">READ ONLY</span>
+          <span className="readonly-badge">{streamState}</span>
           <a className="office-link" href="/office">Open 3D Office</a>
         </div>
       </header>
@@ -178,14 +226,14 @@ export default function TradingRoomPage() {
 
         <article className="panel">
           <div className="panel-heading">
-            <span>Portfolio</span>
-            <strong>PAPER + TESTNET VIEW</strong>
+            <span>Realtime Bus</span>
+            <strong>{lastEvent}</strong>
           </div>
           <div className="metric-grid compact">
-            <div><span>Paper cash</span><strong>{money(state?.positions?.paper?.cash)}</strong></div>
-            <div><span>Paper equity</span><strong>{money(state?.positions?.paper?.equity)}</strong></div>
-            <div><span>Paper qty</span><strong>{number(state?.positions?.paper?.position_qty, 6)}</strong></div>
-            <div><span>Realized PnL</span><strong>{money(state?.positions?.paper?.realized_pnl)}</strong></div>
+            <div><span>Transport</span><strong>SSE</strong></div>
+            <div><span>Backend WS</span><strong>/events/ws</strong></div>
+            <div><span>State</span><strong>{streamState}</strong></div>
+            <div><span>Updated</span><strong>{lastRefresh ? lastRefresh.toLocaleTimeString() : "-"}</strong></div>
           </div>
         </article>
       </section>
@@ -194,16 +242,14 @@ export default function TradingRoomPage() {
         <div className="section-heading">
           <div>
             <p className="eyebrow">Agent Floor</p>
-            <h2>Live agent status</h2>
+            <h2>Realtime agent status</h2>
           </div>
-          <span className="refresh-label">
-            {lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString()}` : "Connecting..."}
-          </span>
+          <span className="refresh-label">BUY_READY · RISK_PASS · ORDER_OPEN · TP_HIT · SL_HIT · CIRCUIT_BREAKER</span>
         </div>
 
         <div className="agents-grid">
           {agents.map((agent) => {
-            const status = state?.agent_statuses?.[agent.id] ?? {};
+            const status = liveStatuses[agent.id] ?? state?.agent_statuses?.[agent.id] ?? {};
             return (
               <article className="agent-card" key={agent.id}>
                 <div className="agent-topline">
@@ -217,7 +263,7 @@ export default function TradingRoomPage() {
                 {typeof status.risk_approved === "boolean" ? (
                   <p>Risk: {status.risk_approved ? "PASS" : "NOT APPROVED"}</p>
                 ) : null}
-                <p className="agent-detail">{status.detail ?? "Awaiting runtime state"}</p>
+                <p className="agent-detail">{status.detail ?? "Awaiting realtime event"}</p>
               </article>
             );
           })}
@@ -226,7 +272,7 @@ export default function TradingRoomPage() {
 
       <footer className="trading-room-footer">
         <span>{state?.runtime?.name ?? "AI Trading BTC"} {state?.runtime?.version ?? ""}</span>
-        <span>Trade execution, order cancellation and position modification are disabled.</span>
+        <span>Realtime transport is read-only. Trade execution, order cancellation and position modification are disabled.</span>
       </footer>
     </main>
   );
