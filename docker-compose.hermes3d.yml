@@ -1,0 +1,17 @@
+services:
+  hermes3d:
+    build:
+      context: .
+      dockerfile: deploy/hermes3d/Dockerfile
+    depends_on:
+      - btc-trader
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      HERMES3D_GATEWAY_URL: http://btc-trader:8000
+      HERMES3D_GATEWAY_ADAPTER_TYPE: custom
+      AI_TRADING_RUNTIME_URL: http://btc-trader:8000
+      CUSTOM_RUNTIME_ALLOWLIST: btc-trader
+      UPSTREAM_ALLOWLIST: btc-trader
+    ports:
+      - "3000:3000"
