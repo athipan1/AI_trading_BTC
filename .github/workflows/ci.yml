@@ -21,3 +21,13 @@ jobs:
       - run: pip install -r requirements.txt
       - run: ruff check .
       - run: pytest
+
+  hermes3d-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose wiring
+        run: docker compose -f docker-compose.yml -f docker-compose.hermes3d.yml config
+      - name: Build pinned Hermes3D Trading Room
+        run: docker build -f deploy/hermes3d/Dockerfile -t ai-trading-btc-hermes3d:test .
