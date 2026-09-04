@@ -27,6 +27,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare CI environment
+        run: cp .env.example .env
       - name: Validate Compose wiring
         run: docker compose -f docker-compose.yml -f docker-compose.hermes3d.yml config
       - name: Build pinned Hermes3D Trading Room
