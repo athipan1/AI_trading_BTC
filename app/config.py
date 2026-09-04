@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     fee_rate: float = Field(default=0.001, ge=0, le=0.02)
     slippage_bps: float = Field(default=5.0, ge=0, le=100)
 
+    hermes3d_spot_position_store: str = "state/binance-testnet-positions.json"
+    hermes3d_futures_position_store: str = "state/binance-futures-testnet-short-positions.json"
+
 
 @lru_cache
 def get_settings() -> Settings:
