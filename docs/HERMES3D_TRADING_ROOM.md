@@ -1,6 +1,6 @@
 # Hermes3D Trading Room
 
-Phase 1.6.1 runs the real Hermes3D Studio against the AI Trading BTC FastAPI runtime through Hermes3D's `custom` runtime seam and keeps the observability path independent from CCXT/exchange access.
+Phase 1.6.2 runs the real Hermes3D Studio against the AI Trading BTC FastAPI runtime through Hermes3D's `custom` runtime seam and keeps the observability path independent from CCXT/exchange access.
 
 ## Safety boundary
 
@@ -25,21 +25,53 @@ The AI Trading BTC `/state` payload reports:
 
 ## CCXT-free observability
 
-`/state`, `/events/stream`, and `/events/ws` no longer fetch Binance market data. They reconstruct observable state from the append-only Hermes3D event journal plus the existing position and automation state files.
+`/state`, `/events/stream`, and `/events/ws` do not fetch Binance market data. They reconstruct observable state from the append-only Hermes3D event journal plus the existing position and automation state files.
 
 This lets a dedicated Ubuntu/proot or dashboard runtime operate without CCXT or Binance credentials. If no trading-worker event has been published yet, `/state` remains healthy and returns `degraded: true` with nullable market metrics instead of failing with `MarketDataError`.
 
-The event stream also watches position and automation state files. This means already-running legacy workers can still surface new `ORDER_OPEN`, `TP_HIT`, `SL_HIT`, and `CIRCUIT_BREAKER` transitions even if those workers were started before the journal publisher code was loaded. `BUY_READY`, `SHORT_READY`, and `RISK_PASS` require a worker that publishes the Phase 1.6 event journal.
+## Zero-downtime legacy sidecar
+
+Phase 1.6.2 adds `scripts/run_hermes3d_sidecar.py` for traders that were started before the journal publisher code was loaded. The sidecar tails the existing JSON stdout logs, converts only observable trading results into normalized Hermes3D events, and writes them to `state/hermes3d-events.jsonl`.
+
+The sidecar never imports an exchange broker, never reads Binance API credentials, and never mutates trader state. By default it attaches at the current end of each log so historical BUY/SELL events are not replayed into the live room. Byte offsets are persisted in `state/hermes3d-sidecar-cursors.json`, so restarting the sidecar does not replay already-consumed lines.
+
+Native Termux example:
+
+```bash
+cd ~/AI_trading_BTC
+nohup python scripts/run_hermes3d_sidecar.py \
+  --spot-log spot-long.log \
+  --futures-log futures-short.log \
+  --event-journal state/hermes3d-events.jsonl \
+  --cursor-store state/hermes3d-sidecar-cursors.json \
+  --interval-seconds 1 \
+  > hermes3d-sidecar.log 2>&1 &
+```
+
+Do not use `--from-start` on a live trading account unless deliberate historical event replay is desired.
 
 ## Realtime architecture
 
-The Spot and Futures auto-trading workers append normalized events to:
+Current Phase 1.6 workers publish directly to:
 
 ```text
 state/hermes3d-events.jsonl
 ```
 
-The FastAPI Hermes3D event stream tails that append-only journal at low latency and forwards events through SSE and WebSocket. No exchange order API is reachable from the event endpoints.
+Already-running legacy workers can be observed through the sidecar:
+
+```text
+spot-long.log + futures-short.log
+              |
+              v
+Hermes3D read-only sidecar
+              |
+              v
+state/hermes3d-events.jsonl
+              |
+              v
+FastAPI SSE/WebSocket -> Hermes3D Trading Room
+```
 
 Normalized event types include:
 
@@ -111,11 +143,17 @@ The `/trading` room holds one same-origin SSE connection and updates agent statu
 
 ## Event producers
 
-Both automatic trading entry points publish to the same journal by default:
+Both current automatic trading entry points publish to the same journal by default:
 
 ```text
 scripts/run_binance_testnet_auto.py
 scripts/run_binance_futures_testnet_short.py
+```
+
+For already-running pre-Phase-1.6 processes, use:
+
+```text
+scripts/run_hermes3d_sidecar.py
 ```
 
 Override the journal path with either:
