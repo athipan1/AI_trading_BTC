@@ -1,6 +1,6 @@
 # Hermes3D Trading Room
 
-Phase 1.6 runs the real Hermes3D Studio against the AI Trading BTC FastAPI runtime through Hermes3D's `custom` runtime seam and adds a read-only realtime event bus.
+Phase 1.6.1 runs the real Hermes3D Studio against the AI Trading BTC FastAPI runtime through Hermes3D's `custom` runtime seam and keeps the observability path independent from CCXT/exchange access.
 
 ## Safety boundary
 
@@ -23,6 +23,14 @@ The AI Trading BTC `/state` payload reports:
 - `position_modify: false`
 - `risk.execution_enabled: false`
 
+## CCXT-free observability
+
+`/state`, `/events/stream`, and `/events/ws` no longer fetch Binance market data. They reconstruct observable state from the append-only Hermes3D event journal plus the existing position and automation state files.
+
+This lets a dedicated Ubuntu/proot or dashboard runtime operate without CCXT or Binance credentials. If no trading-worker event has been published yet, `/state` remains healthy and returns `degraded: true` with nullable market metrics instead of failing with `MarketDataError`.
+
+The event stream also watches position and automation state files. This means already-running legacy workers can still surface new `ORDER_OPEN`, `TP_HIT`, `SL_HIT`, and `CIRCUIT_BREAKER` transitions even if those workers were started before the journal publisher code was loaded. `BUY_READY`, `SHORT_READY`, and `RISK_PASS` require a worker that publishes the Phase 1.6 event journal.
+
 ## Realtime architecture
 
 The Spot and Futures auto-trading workers append normalized events to:
@@ -43,9 +51,22 @@ Normalized event types include:
 - `SL_HIT`
 - `CIRCUIT_BREAKER`
 
-A `STATE_SNAPSHOT` is sent when a client connects and again after each trading-event batch so the Trading Room state remains synchronized without browser polling.
+A `STATE_SNAPSHOT` is sent when a client connects and again after observable state changes so the Trading Room remains synchronized without browser polling.
 
-The base Docker Compose file bind-mounts `./state` into `/app/state`. This lets the FastAPI container observe state and event files written by auto-trading workers running from the same self-hosted machine.
+## Shared state paths for Termux + Ubuntu/proot
+
+When traders remain in native Termux and FastAPI runs inside Ubuntu/proot, point the read-only runtime at the native Termux state directory. Example:
+
+```bash
+export HERMES3D_SPOT_POSITION_STORE=/data/data/com.termux/files/home/AI_trading_BTC/state/binance-testnet-positions.json
+export HERMES3D_FUTURES_POSITION_STORE=/data/data/com.termux/files/home/AI_trading_BTC/state/binance-futures-testnet-short-positions.json
+export HERMES3D_BASELINE_STATE_STORE=/data/data/com.termux/files/home/AI_trading_BTC/state/binance-testnet-auto-baseline.json
+export HERMES3D_TRIPLE_EMA_STATE_STORE=/data/data/com.termux/files/home/AI_trading_BTC/state/binance-testnet-auto-triple-ema.json
+export HERMES3D_FUTURES_SHORT_STATE_STORE=/data/data/com.termux/files/home/AI_trading_BTC/state/binance-futures-testnet-short-auto.json
+export HERMES3D_EVENT_JOURNAL=/data/data/com.termux/files/home/AI_trading_BTC/state/hermes3d-events.jsonl
+```
+
+The exact Termux home path may differ by installation. Verify it before starting FastAPI.
 
 ## Start
 
@@ -86,7 +107,7 @@ Hermes3D reads the `active` map from `/state` and materializes these observer ag
 - `risk-manager`
 - `positions`
 
-The `/trading` room no longer polls every 5 seconds. It holds one same-origin SSE connection and updates agent status as normalized trading events arrive. The backend also exposes the equivalent WebSocket stream for future 3D-office runtime-event integration.
+The `/trading` room holds one same-origin SSE connection and updates agent status as normalized trading events arrive. The backend also exposes the equivalent WebSocket stream for future 3D-office runtime-event integration.
 
 ## Event producers
 
