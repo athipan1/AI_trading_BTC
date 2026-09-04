@@ -6,6 +6,7 @@ from app.config import get_settings
 from app.execution.paper import PaperBroker
 from app.integrations.hermes3d.adapter import Hermes3DReadOnlyAdapter
 from app.integrations.hermes3d.events import Hermes3DEventStream
+from app.integrations.hermes3d.journal import Hermes3DEventJournal
 from app.integrations.hermes3d.router import build_hermes3d_router
 from app.market_data.service import MarketDataError, MarketDataService
 from app.risk.engine import RiskEngine
@@ -36,6 +37,7 @@ hermes3d = Hermes3DReadOnlyAdapter.from_paths(
 )
 hermes3d_events = Hermes3DEventStream(
     adapter=hermes3d,
+    journal=Hermes3DEventJournal(settings.hermes3d_event_journal),
     spot_position_store=hermes3d.spot_position_store,
     futures_position_store=hermes3d.futures_position_store,
     auto_state_paths={
