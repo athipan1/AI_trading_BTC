@@ -3,65 +3,48 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.auto_trading.state_store import AutoTradeStateStore
-from app.execution.paper import PaperBroker
-from app.integrations.hermes3d.adapter import Hermes3DReadOnlyAdapter
 from app.integrations.hermes3d.events import Hermes3DEventStream
 from app.integrations.hermes3d.journal import Hermes3DEventJournal
-from app.models import Candle
+from app.integrations.hermes3d.projection import Hermes3DJournalStateProjection
 from app.monitoring.position_store import PositionStore
-from app.risk.engine import RiskEngine
-
-
-class RisingMarketData:
-    def fetch_candles(self, symbol: str, timeframe: str, limit: int = 250) -> list[Candle]:
-        return [
-            Candle(
-                timestamp_ms=(index + 1) * 3_600_000,
-                open=10_000 + index * 20,
-                high=10_030 + index * 20,
-                low=9_990 + index * 20,
-                close=10_020 + index * 20,
-                volume=100 + index,
-            )
-            for index in range(limit)
-        ]
 
 
 def build_stream(tmp_path: Path) -> Hermes3DEventStream:
     spot = PositionStore(tmp_path / "spot.json")
     futures = PositionStore(tmp_path / "futures.json")
-    adapter = Hermes3DReadOnlyAdapter(
-        market_data=RisingMarketData(),
-        risk_engine=RiskEngine(),
-        paper_broker=PaperBroker(10_000),
+    journal = Hermes3DEventJournal(tmp_path / "events.jsonl")
+    auto_state_paths = {
+        "baseline": tmp_path / "baseline-auto.json",
+        "triple_ema": tmp_path / "triple-auto.json",
+        "triple_ema_short": tmp_path / "short-auto.json",
+    }
+    projection = Hermes3DJournalStateProjection(
+        journal=journal,
         spot_position_store=spot,
         futures_position_store=futures,
+        auto_state_paths=auto_state_paths,
         symbol="BTC/USDT",
         timeframe="1h",
-        market_data_limit=250,
     )
     return Hermes3DEventStream(
-        adapter=adapter,
-        journal=Hermes3DEventJournal(tmp_path / "events.jsonl"),
+        state_reader=projection,
+        journal=journal,
         spot_position_store=spot,
         futures_position_store=futures,
-        auto_state_paths={
-            "baseline": tmp_path / "baseline-auto.json",
-            "triple_ema": tmp_path / "triple-auto.json",
-            "triple_ema_short": tmp_path / "short-auto.json",
-        },
+        auto_state_paths=auto_state_paths,
         interval_seconds=0.01,
     )
 
 
-def test_initial_events_include_snapshot_ready_and_risk_pass(tmp_path: Path) -> None:
+def test_initial_events_do_not_require_market_data(tmp_path: Path) -> None:
     stream = build_stream(tmp_path)
 
-    names = {event["event"] for event in stream._initial_events()}
+    events = stream._initial_events()
 
-    assert "STATE_SNAPSHOT" in names
-    assert "BUY_READY" in names
-    assert "RISK_PASS" in names
+    assert events[0]["event"] == "STATE_SNAPSHOT"
+    assert events[0]["payload"]["read_only"] is True
+    assert events[0]["payload"]["degraded"] is True
+    assert events[0]["payload"]["market"]["price"] is None
 
 
 def test_initial_events_detect_open_position_and_circuit_breaker(tmp_path: Path) -> None:
@@ -109,6 +92,7 @@ def test_event_journal_maps_trade_results(tmp_path: Path) -> None:
     offset, records = journal.read_from(0)
     assert offset == journal.size()
     assert [event["event"] for event in records] == names
+    assert [event["event"] for event in journal.read_recent()] == names
 
 
 def test_event_journal_maps_tp_and_circuit_breaker(tmp_path: Path) -> None:
