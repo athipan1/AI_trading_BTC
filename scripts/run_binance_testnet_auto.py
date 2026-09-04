@@ -9,6 +9,7 @@ from pathlib import Path
 from app.auto_trading.engine import TestnetAutoTrader
 from app.auto_trading.state_store import AutoTradeStateStore, AutoTradingHalted
 from app.execution.binance_testnet import BinanceTestnetBroker
+from app.integrations.hermes3d.journal import Hermes3DEventJournal
 from app.monitoring.position_store import PositionStore
 from app.notifications.line_messaging import LineMessagingNotifier
 from app.risk.engine import RiskEngine
@@ -31,6 +32,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--confirm", default="")
     parser.add_argument("--position-store", default="state/binance-testnet-positions.json")
     parser.add_argument("--state-store", default="state/binance-testnet-auto.json")
+    parser.add_argument(
+        "--event-journal",
+        default=os.environ.get("HERMES3D_EVENT_JOURNAL", "state/hermes3d-events.jsonl"),
+    )
     return parser.parse_args()
 
 
@@ -107,9 +112,7 @@ def build_traders(args: argparse.Namespace) -> list[TestnetAutoTrader]:
         strategy=BaselineStrategy(),
         risk_engine=risk_engine,
         position_store=position_store,
-        state_store=AutoTradeStateStore(
-            _strategy_state_path(args.state_store, "baseline")
-        ),
+        state_store=AutoTradeStateStore(_strategy_state_path(args.state_store, "baseline")),
         notifier=notifier,
         symbol=args.symbol,
         timeframe=args.timeframe,
@@ -121,9 +124,7 @@ def build_traders(args: argparse.Namespace) -> list[TestnetAutoTrader]:
         strategy=TripleEMAAlignmentBreakoutStrategy(),
         risk_engine=risk_engine,
         position_store=position_store,
-        state_store=AutoTradeStateStore(
-            _strategy_state_path(args.state_store, "triple-ema")
-        ),
+        state_store=AutoTradeStateStore(_strategy_state_path(args.state_store, "triple-ema")),
         notifier=notifier,
         symbol=args.symbol,
         timeframe=args.timeframe,
@@ -145,6 +146,7 @@ def main() -> None:
         raise SystemExit("automatic trading interval must be at least 10 seconds")
 
     traders = build_traders(args)
+    event_journal = Hermes3DEventJournal(args.event_journal)
     primary = traders[0]
     preflight = primary.broker.preflight(primary.symbol)
     print(json.dumps({"event": "PREFLIGHT_OK", "preflight": preflight}, sort_keys=True))
@@ -168,8 +170,13 @@ def main() -> None:
         for trader in traders:
             try:
                 result = trader.run_once()
+                event_journal.publish_result(result)
                 print(json.dumps(result, sort_keys=True))
             except AutoTradingHalted as exc:
+                event_journal.publish_circuit_breaker(
+                    strategy_id=trader.strategy_id,
+                    reason=str(exc),
+                )
                 print(
                     json.dumps(
                         {

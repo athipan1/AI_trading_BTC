@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ALLOWED_RESOURCES = new Set(["health", "state", "registry"]);
+const ALLOWED_RESOURCES = new Set(["health", "state", "registry", "events"]);
 
 const normalizeRuntimeUrl = (value: string): string => {
   const parsed = new URL(value.trim());
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   const resource = request.nextUrl.searchParams.get("resource") ?? "state";
   if (!ALLOWED_RESOURCES.has(resource)) {
     return NextResponse.json(
-      { error: "Trading Room is read-only. Allowed resources: health, state, registry." },
+      { error: "Trading Room is read-only. Allowed resources: health, state, registry, events." },
       { status: 400 }
     );
   }
@@ -37,12 +37,28 @@ export async function GET(request: NextRequest) {
 
   try {
     const runtimeUrl = normalizeRuntimeUrl(configuredUrl);
-    const response = await fetch(`${runtimeUrl}/${resource}`, {
+    const pathname = resource === "events" ? "/events/stream" : `/${resource}`;
+    const response = await fetch(`${runtimeUrl}${pathname}`, {
       method: "GET",
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: resource === "events" ? "text/event-stream" : "application/json",
+      },
       cache: "no-store",
-      signal: AbortSignal.timeout(10_000),
+      signal: request.signal,
     });
+
+    if (resource === "events") {
+      return new NextResponse(response.body, {
+        status: response.status,
+        headers: {
+          "Content-Type": response.headers.get("content-type") ?? "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          "Connection": "keep-alive",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
+
     const body = await response.text();
     return new NextResponse(body, {
       status: response.status,

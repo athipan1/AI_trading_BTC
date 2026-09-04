@@ -48,7 +48,14 @@ def test_registry_declares_read_only_capabilities() -> None:
 
     assert registry["mode"] == "read_only"
     assert registry["trade_execution"] is False
-    assert set(registry["capabilities"]) == {"market_state", "strategies", "risk", "positions"}
+    assert {"market_state", "strategies", "risk", "positions"}.issubset(
+        set(registry["capabilities"])
+    )
+    assert {"realtime_events", "sse", "websocket"}.issubset(set(registry["capabilities"]))
+    assert registry["event_endpoints"] == {
+        "sse": "/events/stream",
+        "websocket": "/events/ws",
+    }
     assert "readonly-observer" in registry["models"]
     assert {agent["id"] for agent in registry["agents"]} == {
         "market-data",
@@ -77,8 +84,10 @@ def test_state_exposes_market_strategies_risk_and_positions(tmp_path: Path) -> N
     assert state["permissions"]["trade_execution"] is False
     assert state["permissions"]["order_cancel"] is False
     assert state["permissions"]["position_modify"] is False
+    assert state["permissions"]["events_read"] is True
     assert state["runtime"]["name"] == "AI Trading BTC"
-    assert state["runtime"]["status"] == "read_only"
+    assert state["runtime"]["status"] == "read_only_realtime"
+    assert state["runtime"]["version"] == "phase-1.6"
     assert state["profileName"] == "btc-trading-room"
     assert set(state["active"]) == {
         "market-data",
@@ -90,7 +99,7 @@ def test_state_exposes_market_strategies_risk_and_positions(tmp_path: Path) -> N
     }
     assert set(state["agent_statuses"]) == set(state["active"])
     assert state["agent_statuses"]["market-data"]["status"] == "OBSERVING"
-    assert state["agent_statuses"]["positions"]["status"] == "OPEN"
+    assert state["agent_statuses"]["positions"]["status"] == "ORDER_OPEN"
     assert state["market"]["symbol"] == "BTC/USDT"
     assert {item["strategy_id"] for item in state["strategies"]} == {
         "baseline",

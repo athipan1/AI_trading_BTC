@@ -8,6 +8,7 @@ import time
 from app.auto_trading.futures_short_engine import FuturesShortAutoTrader
 from app.auto_trading.state_store import AutoTradeStateStore, AutoTradingHalted
 from app.execution.binance_futures_testnet import BinanceFuturesTestnetBroker
+from app.integrations.hermes3d.journal import Hermes3DEventJournal
 from app.monitoring.position_store import PositionStore
 from app.notifications.line_messaging import LineMessagingNotifier
 from app.risk.engine import RiskEngine
@@ -34,6 +35,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--state-store",
         default="state/binance-futures-testnet-short-auto.json",
+    )
+    parser.add_argument(
+        "--event-journal",
+        default=os.environ.get("HERMES3D_EVENT_JOURNAL", "state/hermes3d-events.jsonl"),
     )
     return parser.parse_args()
 
@@ -106,6 +111,7 @@ def main() -> None:
         raise SystemExit("automatic trading interval must be at least 10 seconds")
 
     trader = build_trader(args)
+    event_journal = Hermes3DEventJournal(args.event_journal)
     preflight = trader.broker.preflight(trader.symbol)
     print(json.dumps({"event": "FUTURES_PREFLIGHT_OK", "preflight": preflight}, sort_keys=True))
     if trader.notifier is not None:
@@ -128,8 +134,13 @@ def main() -> None:
     while True:
         try:
             result = trader.run_once()
+            event_journal.publish_result(result)
             print(json.dumps(result, sort_keys=True))
         except AutoTradingHalted as exc:
+            event_journal.publish_circuit_breaker(
+                strategy_id=trader.strategy_id,
+                reason=str(exc),
+            )
             print(
                 json.dumps(
                     {
