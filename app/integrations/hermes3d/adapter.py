@@ -27,6 +27,8 @@ class Hermes3DReadOnlyAdapter:
     """
 
     MIN_STRATEGY_CANDLES = 201
+    RUNTIME_NAME = "AI Trading BTC"
+    RUNTIME_VERSION = "phase-1.5"
 
     def __init__(
         self,
@@ -85,6 +87,12 @@ class Hermes3DReadOnlyAdapter:
             "mode": "read_only",
             "capabilities": ["market_state", "strategies", "risk", "positions"],
             "trade_execution": False,
+            "models": {
+                "readonly-observer": {
+                    "name": "Read-only Observer",
+                    "provider": "ai-trading-btc",
+                }
+            },
             "agents": [
                 {"id": "market-data", "name": "Market Data", "role": "observer"},
                 {"id": "baseline", "name": "Baseline Strategy", "role": "observer"},
@@ -126,6 +134,20 @@ class Hermes3DReadOnlyAdapter:
             "decisions": {item["strategy_id"]: item["risk"] for item in strategy_states},
         }
 
+    @staticmethod
+    def _strategy_status(strategy_state: dict[str, Any]) -> dict[str, Any]:
+        signal = strategy_state["signal"]
+        risk = strategy_state["risk"]
+        action = str(signal["action"])
+        is_entry = action in {TradeAction.BUY.value, TradeAction.SHORT.value}
+        return {
+            "status": "ENTRY_READY" if is_entry else action,
+            "signal": action,
+            "regime": signal["regime"],
+            "risk_approved": bool(risk["approved"]) if is_entry else False,
+            "detail": risk["reason"] if is_entry else signal["reasons"][0],
+        }
+
     def state(self) -> dict[str, Any]:
         candles = self.market_data.fetch_candles(
             self.symbol,
@@ -145,9 +167,59 @@ class Hermes3DReadOnlyAdapter:
         ]
         baseline = strategy_states[0]["diagnostic"]
         triple_long = strategy_states[1]["diagnostic"]
+        risk_summary = self._risk_summary(strategy_states)
+        spot_positions = self.spot_position_store.active_positions(self.symbol)
+        futures_positions = self.futures_position_store.active_positions(self.symbol)
+        open_positions = len(spot_positions) + len(futures_positions)
+        strategy_by_id = {item["strategy_id"]: item for item in strategy_states}
+
+        agent_statuses = {
+            "market-data": {
+                "status": "OBSERVING",
+                "detail": f"{self.symbol} {self.timeframe} candle {latest.timestamp_ms}",
+            },
+            "baseline": self._strategy_status(strategy_by_id["baseline"]),
+            "triple_ema": self._strategy_status(strategy_by_id["triple_ema"]),
+            "triple_ema_short": self._strategy_status(strategy_by_id["triple_ema_short"]),
+            "risk-manager": {
+                "status": (
+                    "PASS"
+                    if risk_summary["entry_signals"] > 0
+                    and risk_summary["approved_entries"] == risk_summary["entry_signals"]
+                    else "WATCH"
+                ),
+                "detail": (
+                    f"{risk_summary['approved_entries']}/{risk_summary['entry_signals']} "
+                    "entry signals approved"
+                ),
+            },
+            "positions": {
+                "status": "OPEN" if open_positions else "FLAT",
+                "detail": f"{open_positions} tracked testnet positions",
+            },
+        }
 
         return {
             "generated_at": datetime.now(UTC).isoformat(),
+            "profileName": "btc-trading-room",
+            "registry_profile": "btc-trading-room",
+            "runtime": {
+                "name": self.RUNTIME_NAME,
+                "version": self.RUNTIME_VERSION,
+                "vendor": "athipan1",
+                "status": "read_only",
+                "active_model": "readonly-observer",
+                "governance": "risk-engine-enforced",
+            },
+            "active": {
+                "market-data": ["readonly-observer"],
+                "baseline": ["readonly-observer"],
+                "triple_ema": ["readonly-observer"],
+                "triple_ema_short": ["readonly-observer"],
+                "risk-manager": ["readonly-observer"],
+                "positions": ["readonly-observer"],
+            },
+            "agent_statuses": agent_statuses,
             "read_only": True,
             "permissions": {
                 "market_read": True,
@@ -172,10 +244,10 @@ class Hermes3DReadOnlyAdapter:
                 "regime": strategy_states[0]["signal"]["regime"],
             },
             "strategies": strategy_states,
-            "risk": self._risk_summary(strategy_states),
+            "risk": risk_summary,
             "positions": {
                 "paper": paper.model_dump(mode="json"),
-                "spot_testnet": self.spot_position_store.active_positions(self.symbol),
-                "futures_testnet_short": self.futures_position_store.active_positions(self.symbol),
+                "spot_testnet": spot_positions,
+                "futures_testnet_short": futures_positions,
             },
         }

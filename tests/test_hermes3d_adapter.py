@@ -49,6 +49,15 @@ def test_registry_declares_read_only_capabilities() -> None:
     assert registry["mode"] == "read_only"
     assert registry["trade_execution"] is False
     assert set(registry["capabilities"]) == {"market_state", "strategies", "risk", "positions"}
+    assert "readonly-observer" in registry["models"]
+    assert {agent["id"] for agent in registry["agents"]} == {
+        "market-data",
+        "baseline",
+        "triple_ema",
+        "triple_ema_short",
+        "risk-manager",
+        "positions",
+    }
 
 
 def test_state_exposes_market_strategies_risk_and_positions(tmp_path: Path) -> None:
@@ -68,6 +77,20 @@ def test_state_exposes_market_strategies_risk_and_positions(tmp_path: Path) -> N
     assert state["permissions"]["trade_execution"] is False
     assert state["permissions"]["order_cancel"] is False
     assert state["permissions"]["position_modify"] is False
+    assert state["runtime"]["name"] == "AI Trading BTC"
+    assert state["runtime"]["status"] == "read_only"
+    assert state["profileName"] == "btc-trading-room"
+    assert set(state["active"]) == {
+        "market-data",
+        "baseline",
+        "triple_ema",
+        "triple_ema_short",
+        "risk-manager",
+        "positions",
+    }
+    assert set(state["agent_statuses"]) == set(state["active"])
+    assert state["agent_statuses"]["market-data"]["status"] == "OBSERVING"
+    assert state["agent_statuses"]["positions"]["status"] == "OPEN"
     assert state["market"]["symbol"] == "BTC/USDT"
     assert {item["strategy_id"] for item in state["strategies"]} == {
         "baseline",
