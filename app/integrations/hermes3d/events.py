@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 from app.auto_trading.state_store import AutoTradeStateStore
 from app.integrations.hermes3d.adapter import Hermes3DReadOnlyAdapter
