@@ -16,13 +16,17 @@ def test_phase185_reapplies_translation_after_react_rerenders() -> None:
 
 def test_phase185_covers_marketplace_actions_and_metadata() -> None:
     source = LOCALIZER.read_text(encoding="utf-8")
+    long_tagline_pair = (
+        '"Gives agents a shared workspace TODO board with blocked-task tracking.": '
+        '"ให้เอเจนต์ใช้กระดาน TODO ร่วมกัน พร้อมติดตามงานที่ติดขัด"'
+    )
     for pair in (
         '"Install deps": "ติดตั้งส่วนที่จำเป็น"',
         '"Enable gateway": "เปิดใช้เกตเวย์"',
         '"Open settings": "เปิดการตั้งค่า"',
         '"Remove for all agents": "นำออกสำหรับเอเจนต์ทั้งหมด"',
         '"Productivity": "ประสิทธิภาพงาน"',
-        '"Gives agents a shared workspace TODO board with blocked-task tracking.": "ให้เอเจนต์ใช้กระดาน TODO ร่วมกัน พร้อมติดตามงานที่ติดขัด"',
+        long_tagline_pair,
     ):
         assert pair in source
 
