@@ -102,8 +102,8 @@ def patch_office_screen(root: Path) -> bool:
     path = root / "src/features/office/screens/OfficeScreen.tsx"
     return replace_once(
         path,
-        "              <AnalyticsPanel\n                client={client}\n                status={status}\n",
-        "              <AnalyticsPanel\n                client={client}\n                analyticsClient={provider}\n                status={status}\n                analyticsStatus={\n                  activeAdapterType === \"custom\" && state.agents.length > 0\n                    ? \"connected\"\n                    : status\n                }\n",
+        "            <AnalyticsPanel\n              client={client}\n              status={status}\n",
+        "            <AnalyticsPanel\n              client={client}\n              analyticsClient={provider}\n              status={status}\n              analyticsStatus={\n                activeAdapterType === \"custom\" && state.agents.length > 0\n                  ? \"connected\"\n                  : status\n              }\n",
         "office analytics custom runtime routing",
     )
 
