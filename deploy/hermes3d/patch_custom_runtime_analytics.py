@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E501, I001
 """Patch a Hermes3D checkout with read-only analytics support for custom runtimes.
 
 The upstream custom runtime seam can hydrate agents from HTTP /health, /state and
