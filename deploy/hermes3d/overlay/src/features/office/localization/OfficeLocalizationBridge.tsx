@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type OfficeLocale = "th" | "en";
 
@@ -13,6 +13,7 @@ type DynamicTranslation = {
 
 const STORAGE_KEY = "hermes3d-office-locale";
 const TRANSLATABLE_ATTRIBUTES = ["placeholder", "aria-label", "title"] as const;
+const SETTLE_DELAYS_MS = [0, 32, 120, 400] as const;
 
 const EN_TO_TH: Record<string, string> = {
   "TRADING LIVE": "ระบบเทรด ออนไลน์",
@@ -57,6 +58,7 @@ const EN_TO_TH: Record<string, string> = {
   "Cost, budgets, and performance intelligence.": "ต้นทุน งบประมาณ และประสิทธิภาพระบบ",
 
   "Skills Marketplace": "ตลาดสกิล",
+  "Skills marketplace": "ตลาดสกิล",
   "Discover, install, and enable gateway skills in a wider workspace.": "ค้นหา ติดตั้ง และเปิดใช้สกิลของเกตเวย์ในพื้นที่ทำงาน",
   "Browse gateway skills like a curated plugin store.": "เลือกดูสกิลของเกตเวย์ในรูปแบบร้านปลั๊กอิน",
   "Packaged skill installs target the selected agent workspace. Global setup actions still affect the whole gateway. Agent access controls below apply only to the selected agent.": "การติดตั้งสกิลแบบแพ็กเกจจะลงในพื้นที่ทำงานของเอเจนต์ที่เลือก การตั้งค่าระดับส่วนกลางยังมีผลต่อทั้งเกตเวย์ และการควบคุมสิทธิ์ด้านล่างมีผลเฉพาะเอเจนต์ที่เลือก",
@@ -85,9 +87,18 @@ const EN_TO_TH: Record<string, string> = {
   "Powered by": "ขับเคลื่อนโดย",
   "Check the `HERMES3D` filter below to find the installed skill quickly.": "เลือกตัวกรอง `HERMES3D` ด้านล่างเพื่อค้นหาสกิลที่ติดตั้งแล้วได้เร็วขึ้น",
   "Install skill": "ติดตั้งสกิล",
+  "Install deps": "ติดตั้งส่วนที่จำเป็น",
+  "Enable gateway": "เปิดใช้เกตเวย์",
+  "Open settings": "เปิดการตั้งค่า",
   "Details": "รายละเอียด",
   "Disable for agent": "ปิดสำหรับเอเจนต์",
   "Enable for agent": "เปิดสำหรับเอเจนต์",
+  "Remove for all agents": "นำออกสำหรับเอเจนต์ทั้งหมด",
+  "This skill is currently enabled for the selected agent.": "สกิลนี้เปิดใช้งานสำหรับเอเจนต์ที่เลือกอยู่",
+  "This skill is currently disabled for the selected agent.": "สกิลนี้ปิดใช้งานสำหรับเอเจนต์ที่เลือกอยู่",
+  "Removing from the gateway deletes the installed skill for every agent.": "การนำออกจากเกตเวย์จะลบสกิลที่ติดตั้งออกจากเอเจนต์ทุกตัว",
+  "Skill detail": "รายละเอียดสกิล",
+  "Close marketplace detail": "ปิดรายละเอียดสกิล",
   "Install": "ติดตั้ง",
   "Remove": "นำออก",
   "Delete": "ลบ",
@@ -99,6 +110,28 @@ const EN_TO_TH: Record<string, string> = {
   "Next": "ถัดไป",
   "Done": "เสร็จสิ้น",
   "Loading...": "กำลังโหลด...",
+
+  "Productivity": "ประสิทธิภาพงาน",
+  "Engineering": "วิศวกรรม",
+  "Design": "ออกแบบ",
+  "Communication": "การสื่อสาร",
+  "Planning": "การวางแผน",
+  "Audio": "เสียง",
+  "Automation": "ระบบอัตโนมัติ",
+  "Verified": "ตรวจสอบแล้ว",
+  "Managed": "จัดการโดยระบบ",
+  "Popular": "ยอดนิยม",
+  "Editor pick": "แนะนำโดยทีม",
+  "Hermes3D test": "ทดสอบ Hermes3D",
+  "Kanban core": "แกนหลัก Kanban",
+  "Office demo": "ตัวอย่าง Office",
+  "Gives agents a shared workspace TODO board with blocked-task tracking.": "ให้เอเจนต์ใช้กระดาน TODO ร่วมกัน พร้อมติดตามงานที่ติดขัด",
+  "Turns actionable requests into persistent shared tasks that power the Hermes3D Kanban board.": "เปลี่ยนคำขอที่ลงมือทำได้ให้เป็นงานถาวรร่วมกันสำหรับกระดาน Kanban ของ Hermes3D",
+  "Lets agents search Spotify, control playback, and return music links on the current channel.": "ให้เอเจนต์ค้นหา Spotify ควบคุมการเล่น และส่งลิงก์เพลงกลับในช่องปัจจุบัน",
+  "Turns repository operations into a one-step teammate workflow.": "รวมงานในรีโพซิทอรีให้เป็นเวิร์กโฟลว์ร่วมทีมแบบขั้นตอนเดียว",
+  "Connects design files, specs, and implementation context.": "เชื่อมไฟล์ออกแบบ สเปก และบริบทการพัฒนาเข้าด้วยกัน",
+  "Keeps agents plugged into team channels and notifications.": "เชื่อมเอเจนต์กับช่องทีมและการแจ้งเตือน",
+  "Brings issue tracking and execution loops directly into agent workflows.": "นำการติดตาม issue และวงจรการทำงานเข้าเวิร์กโฟลว์ของเอเจนต์โดยตรง",
 
   "Market": "ตลาด",
   "Market Data": "ข้อมูลตลาด",
@@ -214,6 +247,7 @@ const readInitialLocale = (): OfficeLocale => {
 export function OfficeLocalizationBridge() {
   const [locale, setLocale] = useState<OfficeLocale>("th");
   const oppositeLocale = useMemo<OfficeLocale>(() => (locale === "th" ? "en" : "th"), [locale]);
+  const settleTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => {
     setLocale(readInitialLocale());
@@ -222,7 +256,21 @@ export function OfficeLocalizationBridge() {
   useEffect(() => {
     document.documentElement.lang = locale;
     window.localStorage.setItem(STORAGE_KEY, locale);
+
+    const clearSettleTimers = () => {
+      for (const timer of settleTimers.current) clearTimeout(timer);
+      settleTimers.current = [];
+    };
+
+    const scheduleSettledTranslation = () => {
+      clearSettleTimers();
+      settleTimers.current = SETTLE_DELAYS_MS.map((delay) =>
+        setTimeout(() => translateTree(document.body, locale), delay),
+      );
+    };
+
     translateTree(document.body, locale);
+    scheduleSettledTranslation();
 
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
@@ -236,6 +284,7 @@ export function OfficeLocalizationBridge() {
         }
         for (const node of mutation.addedNodes) translateTree(node, locale);
       }
+      scheduleSettledTranslation();
     });
 
     observer.observe(document.body, {
@@ -246,7 +295,16 @@ export function OfficeLocalizationBridge() {
       attributeFilter: [...TRANSLATABLE_ATTRIBUTES],
     });
 
-    return () => observer.disconnect();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") scheduleSettledTranslation();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", handleVisibility);
+      clearSettleTimers();
+    };
   }, [locale]);
 
   return (
@@ -254,7 +312,7 @@ export function OfficeLocalizationBridge() {
       type="button"
       data-office-locale-toggle
       onClick={() => setLocale(oppositeLocale)}
-      className="fixed right-2 top-2 z-[110] min-h-8 rounded-md border border-cyan-400/40 bg-black/80 px-2.5 py-1 text-[11px] font-semibold text-cyan-100 shadow-lg backdrop-blur transition-colors hover:border-cyan-300/60 hover:bg-black/90"
+      className="fixed right-2 top-2 z-[140] min-h-8 rounded-md border border-cyan-400/40 bg-black/80 px-2.5 py-1 text-[11px] font-semibold text-cyan-100 shadow-lg backdrop-blur transition-colors hover:border-cyan-300/60 hover:bg-black/90"
       aria-label={locale === "th" ? "Switch office language to English" : "เปลี่ยนภาษาเป็นไทย"}
       title={locale === "th" ? "Switch to English" : "เปลี่ยนเป็นภาษาไทย"}
     >
