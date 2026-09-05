@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { RunningAvatarLoader } from "@/features/agents/components/RunningAvatarLoader";
 import { AgentStoreProvider } from "@/features/agents/state/store";
+import { OfficeLocalizationBridge } from "@/features/office/localization/OfficeLocalizationBridge";
 import { OfficeScreen } from "@/features/office/screens/OfficeScreen";
 import { TradingOfficeRealtimeBridge } from "@/features/trading/TradingOfficeRealtimeBridge";
 import "./mobile.css";
@@ -38,6 +39,7 @@ export default function OfficePage() {
   return (
     <AgentStoreProvider>
       <TradingOfficeRealtimeBridge />
+      <OfficeLocalizationBridge />
       <Suspense fallback={<OfficeLoadingFallback />}>
         <OfficeScreen showHermesConsole={showHermesConsole} />
       </Suspense>
