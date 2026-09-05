@@ -30,11 +30,18 @@ const initialDiagnostics: BridgeDiagnostics = {
   lastTargets: "-",
 };
 
+const STATUS_LABELS: Record<BridgeStatus, string> = {
+  connecting: "CONNECTING",
+  connected: "LIVE",
+  error: "ERROR",
+};
+
 export function TradingOfficeRealtimeBridge() {
   const { state, dispatch } = useAgentStore();
   const resetTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const agentsRef = useRef(state.agents);
   const [diagnostics, setDiagnostics] = useState<BridgeDiagnostics>(initialDiagnostics);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   useEffect(() => {
     agentsRef.current = state.agents;
@@ -146,13 +153,38 @@ export function TradingOfficeRealtimeBridge() {
   }, [dispatch]);
 
   return (
-    <div className="pointer-events-none fixed left-2 top-2 z-[100] rounded-md border border-cyan-400/40 bg-black/80 px-2 py-1 font-mono text-[10px] leading-4 text-cyan-100 shadow-lg">
-      <div>TRADING SSE {diagnostics.status.toUpperCase()}</div>
-      <div>
-        RX {diagnostics.received} · MAP {diagnostics.mapped} · APPLY {diagnostics.applied}
-      </div>
-      <div>LAST {diagnostics.lastEvent}</div>
-      <div>TARGET {diagnostics.lastTargets}</div>
+    <div className="fixed left-2 top-2 z-[100] font-mono text-[10px] text-cyan-100">
+      <button
+        type="button"
+        onClick={() => setShowDiagnostics((current) => !current)}
+        className="pointer-events-auto flex min-h-8 items-center gap-1.5 rounded-md border border-cyan-400/40 bg-black/80 px-2 py-1 shadow-lg backdrop-blur transition-colors hover:border-cyan-300/60 hover:bg-black/90"
+        aria-expanded={showDiagnostics}
+        aria-controls="trading-realtime-diagnostics"
+        aria-label={showDiagnostics ? "Hide trading diagnostics" : "Show trading diagnostics"}
+      >
+        <span
+          aria-hidden="true"
+          className={diagnostics.status === "error" ? "text-red-300" : "text-emerald-300"}
+        >
+          ●
+        </span>
+        <span>TRADING {STATUS_LABELS[diagnostics.status]}</span>
+        <span className="text-cyan-100/55">RX {diagnostics.received}</span>
+      </button>
+
+      {showDiagnostics ? (
+        <div
+          id="trading-realtime-diagnostics"
+          className="pointer-events-none mt-1 rounded-md border border-cyan-400/40 bg-black/80 px-2 py-1 leading-4 shadow-lg backdrop-blur"
+        >
+          <div>TRADING SSE {diagnostics.status.toUpperCase()}</div>
+          <div>
+            RX {diagnostics.received} · MAP {diagnostics.mapped} · APPLY {diagnostics.applied}
+          </div>
+          <div>LAST {diagnostics.lastEvent}</div>
+          <div>TARGET {diagnostics.lastTargets}</div>
+        </div>
+      ) : null}
     </div>
   );
 }
