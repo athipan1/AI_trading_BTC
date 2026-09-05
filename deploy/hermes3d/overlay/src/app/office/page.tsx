@@ -3,6 +3,7 @@ import { RunningAvatarLoader } from "@/features/agents/components/RunningAvatarL
 import { AgentStoreProvider } from "@/features/agents/state/store";
 import { OfficeScreen } from "@/features/office/screens/OfficeScreen";
 import { TradingOfficeRealtimeBridge } from "@/features/trading/TradingOfficeRealtimeBridge";
+import "./mobile.css";
 
 const ENABLED_RE = /^(1|true|yes|on)$/i;
 

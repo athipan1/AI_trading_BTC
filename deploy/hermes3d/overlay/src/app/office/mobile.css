@@ -1,0 +1,66 @@
+@media (max-width: 767px) {
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+
+  body {
+    min-height: 100dvh;
+  }
+
+  /* Keep the Hermes event console usable without covering most of the 3D scene. */
+  section.pointer-events-auto.fixed.bottom-3.left-3.z-30 {
+    left: 0.5rem !important;
+    right: 0.5rem !important;
+    bottom: calc(3.75rem + env(safe-area-inset-bottom)) !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: min(34dvh, 18rem) !important;
+  }
+
+  section.pointer-events-auto.fixed.bottom-3.left-3.z-30 > div:first-child {
+    min-height: 2.75rem;
+    gap: 0.5rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  section.pointer-events-auto.fixed.bottom-3.left-3.z-30 button {
+    min-height: 2.5rem;
+    min-width: 2.5rem;
+  }
+
+  /* Prevent horizontal overlays from forcing the document wider than the phone. */
+  [data-hq-sidebar],
+  [data-hq-panel],
+  [data-hq-mobile-nav] {
+    max-width: 100vw;
+  }
+
+  /* Preserve a clean touch area around the 3D viewport. */
+  canvas {
+    touch-action: manipulation;
+  }
+}
+
+@media (max-width: 390px) {
+  section.pointer-events-auto.fixed.bottom-3.left-3.z-30 {
+    max-height: 29dvh !important;
+  }
+
+  [data-hq-mobile-nav] button {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    letter-spacing: 0.06em;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  [data-hq-panel] {
+    max-height: 62dvh !important;
+  }
+
+  section.pointer-events-auto.fixed.bottom-3.left-3.z-30 {
+    max-height: 45dvh !important;
+  }
+}
