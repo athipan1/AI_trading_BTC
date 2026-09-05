@@ -1,9 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 const STORAGE_KEY = "hermes3d-mobile-agent-roster";
 const VIEWPORT_MARGIN = 8;
+const PANEL_GAP_PX = 8;
+const LONG_PRESS_MS = 350;
 const DRAG_THRESHOLD_PX = 5;
 
 type StoredRosterState = {
@@ -12,13 +20,13 @@ type StoredRosterState = {
   y?: number;
 };
 
-type DragState = {
+type PressState = {
   pointerId: number;
   startClientX: number;
   startClientY: number;
   startX: number;
   startY: number;
-  moved: boolean;
+  dragging: boolean;
 };
 
 const readStoredState = (): StoredRosterState => {
@@ -63,33 +71,72 @@ const findRosterRoot = (): HTMLElement | null => {
   return null;
 };
 
-const clampPosition = (root: HTMLElement, x: number, y: number): { x: number; y: number } => {
-  const rect = root.getBoundingClientRect();
-  const maxX = Math.max(VIEWPORT_MARGIN, window.innerWidth - rect.width - VIEWPORT_MARGIN);
-  const maxY = Math.max(VIEWPORT_MARGIN, window.innerHeight - rect.height - VIEWPORT_MARGIN);
+const clampAnchorPosition = (
+  anchor: HTMLElement,
+  x: number,
+  y: number,
+): { x: number; y: number } => {
+  const rect = anchor.getBoundingClientRect();
+  const maxX = Math.max(
+    VIEWPORT_MARGIN,
+    window.innerWidth - rect.width - VIEWPORT_MARGIN,
+  );
+  const maxY = Math.max(
+    VIEWPORT_MARGIN,
+    window.innerHeight - rect.height - VIEWPORT_MARGIN,
+  );
   return {
     x: Math.min(Math.max(VIEWPORT_MARGIN, x), maxX),
     y: Math.min(Math.max(VIEWPORT_MARGIN, y), maxY),
   };
 };
 
-const applyFloatingPosition = (root: HTMLElement, x: number, y: number): void => {
+const applyAnchorPosition = (anchor: HTMLElement, x: number, y: number): void => {
+  anchor.style.left = `${x}px`;
+  anchor.style.top = `${y}px`;
+  anchor.style.right = "auto";
+  anchor.style.bottom = "auto";
+};
+
+const placeRosterByAnchor = (anchor: HTMLElement, root: HTMLElement): void => {
   root.dataset.mobileAgentRoster = "true";
+  root.style.display = "";
   root.style.position = "fixed";
-  root.style.left = `${x}px`;
-  root.style.top = `${y}px`;
   root.style.right = "auto";
   root.style.bottom = "auto";
   root.style.transform = "none";
   root.style.zIndex = "120";
-  root.style.touchAction = "none";
+
+  const anchorRect = anchor.getBoundingClientRect();
+  const rootRect = root.getBoundingClientRect();
+  const maxX = Math.max(
+    VIEWPORT_MARGIN,
+    window.innerWidth - rootRect.width - VIEWPORT_MARGIN,
+  );
+  const preferredX = anchorRect.right - rootRect.width;
+  const x = Math.min(Math.max(VIEWPORT_MARGIN, preferredX), maxX);
+
+  const maxY = Math.max(
+    VIEWPORT_MARGIN,
+    window.innerHeight - rootRect.height - VIEWPORT_MARGIN,
+  );
+  const belowY = anchorRect.bottom + PANEL_GAP_PX;
+  const aboveY = anchorRect.top - rootRect.height - PANEL_GAP_PX;
+  const preferredY = belowY <= maxY ? belowY : aboveY;
+  const y = Math.min(Math.max(VIEWPORT_MARGIN, preferredY), maxY);
+
+  root.style.left = `${x}px`;
+  root.style.top = `${y}px`;
 };
 
 export function MobileAgentRosterBridge() {
   const [stored, setStored] = useState<StoredRosterState>({ hidden: false });
   const [rosterFound, setRosterFound] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const rootRef = useRef<HTMLElement | null>(null);
-  const dragRef = useRef<DragState | null>(null);
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
+  const pressRef = useRef<PressState | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressClickRef = useRef(false);
 
   const persist = useCallback((next: StoredRosterState) => {
@@ -97,12 +144,21 @@ export function MobileAgentRosterBridge() {
     saveStoredState(next);
   }, []);
 
-  const applyStateToRoot = useCallback((root: HTMLElement, state: StoredRosterState) => {
-    root.style.display = state.hidden ? "none" : "";
-    if (!state.hidden && typeof state.x === "number" && typeof state.y === "number") {
-      const clamped = clampPosition(root, state.x, state.y);
-      applyFloatingPosition(root, clamped.x, clamped.y);
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current === null) return;
+    clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  }, []);
+
+  const syncPanelToAnchor = useCallback((hidden: boolean) => {
+    const root = rootRef.current;
+    const anchor = anchorRef.current;
+    if (!root || !anchor) return;
+    if (hidden) {
+      root.style.display = "none";
+      return;
     }
+    placeRosterByAnchor(anchor, root);
   }, []);
 
   useEffect(() => {
@@ -111,135 +167,168 @@ export function MobileAgentRosterBridge() {
 
   useEffect(() => {
     let cancelled = false;
-    let observer: MutationObserver | null = null;
-
     const attach = () => {
-      if (cancelled) return undefined;
+      if (cancelled) return;
       const root = findRosterRoot();
-      if (!root) return undefined;
+      if (!root) return;
       rootRef.current = root;
       setRosterFound(true);
-      applyStateToRoot(root, readStoredState());
-
-      const dragHandle = root.querySelector<HTMLElement>("button:has(svg.lucide-users)") ?? root;
-      dragHandle.dataset.mobileAgentRosterDragHandle = "true";
-      dragHandle.style.touchAction = "none";
-
-      const onPointerDown = (event: PointerEvent) => {
-        if (event.button !== 0 && event.pointerType === "mouse") return;
-        const rect = root.getBoundingClientRect();
-        dragRef.current = {
-          pointerId: event.pointerId,
-          startClientX: event.clientX,
-          startClientY: event.clientY,
-          startX: rect.left,
-          startY: rect.top,
-          moved: false,
-        };
-        suppressClickRef.current = false;
-        dragHandle.setPointerCapture?.(event.pointerId);
-      };
-
-      const onPointerMove = (event: PointerEvent) => {
-        const drag = dragRef.current;
-        if (!drag || drag.pointerId !== event.pointerId) return;
-        const dx = event.clientX - drag.startClientX;
-        const dy = event.clientY - drag.startClientY;
-        if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-        drag.moved = true;
-        suppressClickRef.current = true;
-        event.preventDefault();
-        const clamped = clampPosition(root, drag.startX + dx, drag.startY + dy);
-        applyFloatingPosition(root, clamped.x, clamped.y);
-      };
-
-      const finishDrag = (event: PointerEvent) => {
-        const drag = dragRef.current;
-        if (!drag || drag.pointerId !== event.pointerId) return;
-        dragRef.current = null;
-        if (!drag.moved) return;
-        const rect = root.getBoundingClientRect();
-        persist({ hidden: false, x: rect.left, y: rect.top });
-      };
-
-      const suppressDraggedClick = (event: MouseEvent) => {
-        if (!suppressClickRef.current) return;
-        suppressClickRef.current = false;
-        event.preventDefault();
-        event.stopPropagation();
-      };
-
-      dragHandle.addEventListener("pointerdown", onPointerDown);
-      dragHandle.addEventListener("pointermove", onPointerMove, { passive: false });
-      dragHandle.addEventListener("pointerup", finishDrag);
-      dragHandle.addEventListener("pointercancel", finishDrag);
-      dragHandle.addEventListener("click", suppressDraggedClick, true);
-
-      return () => {
-        dragHandle.removeEventListener("pointerdown", onPointerDown);
-        dragHandle.removeEventListener("pointermove", onPointerMove);
-        dragHandle.removeEventListener("pointerup", finishDrag);
-        dragHandle.removeEventListener("pointercancel", finishDrag);
-        dragHandle.removeEventListener("click", suppressDraggedClick, true);
-      };
+      if (readStoredState().hidden) root.style.display = "none";
     };
 
-    let detach = attach();
-    observer = new MutationObserver(() => {
+    attach();
+    const observer = new MutationObserver(() => {
       if (rootRef.current?.isConnected) return;
-      detach?.();
-      detach = attach();
+      attach();
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
-    const onResize = () => {
-      const root = rootRef.current;
-      if (!root || root.style.display === "none") return;
-      const rect = root.getBoundingClientRect();
-      const clamped = clampPosition(root, rect.left, rect.top);
-      applyFloatingPosition(root, clamped.x, clamped.y);
-      persist({ hidden: false, x: clamped.x, y: clamped.y });
-    };
-    window.addEventListener("resize", onResize);
-
     return () => {
       cancelled = true;
-      detach?.();
-      observer?.disconnect();
-      window.removeEventListener("resize", onResize);
+      observer.disconnect();
     };
-  }, [applyStateToRoot, persist]);
+  }, []);
 
-  const hideRoster = () => {
+  useEffect(() => {
+    if (!rosterFound) return;
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+
+    const rect = anchor.getBoundingClientRect();
+    const defaultX = window.innerWidth - rect.width - VIEWPORT_MARGIN;
+    const defaultY = 56;
+    const clamped = clampAnchorPosition(
+      anchor,
+      stored.x ?? defaultX,
+      stored.y ?? defaultY,
+    );
+    applyAnchorPosition(anchor, clamped.x, clamped.y);
+    syncPanelToAnchor(stored.hidden);
+  }, [rosterFound, stored.hidden, stored.x, stored.y, syncPanelToAnchor]);
+
+  useEffect(() => {
+    if (!rosterFound) return;
+
+    const onResize = () => {
+      const anchor = anchorRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const clamped = clampAnchorPosition(anchor, rect.left, rect.top);
+      applyAnchorPosition(anchor, clamped.x, clamped.y);
+      syncPanelToAnchor(stored.hidden);
+      persist({ hidden: stored.hidden, x: clamped.x, y: clamped.y });
+    };
+
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [persist, rosterFound, stored.hidden, syncPanelToAnchor]);
+
+  useEffect(() => clearLongPressTimer, [clearLongPressTimer]);
+
+  const hideRoster = useCallback(() => {
+    const anchor = anchorRef.current;
     const root = rootRef.current;
-    if (!root) return;
-    const rect = root.getBoundingClientRect();
+    if (!anchor || !root) return;
+    const rect = anchor.getBoundingClientRect();
     root.style.display = "none";
     persist({ hidden: true, x: rect.left, y: rect.top });
+  }, [persist]);
+
+  const showRoster = useCallback(() => {
+    const anchor = anchorRef.current;
+    const root = rootRef.current ?? findRosterRoot();
+    if (!anchor || !root) return;
+    rootRef.current = root;
+    const rect = anchor.getBoundingClientRect();
+    placeRosterByAnchor(anchor, root);
+    persist({ hidden: false, x: rect.left, y: rect.top });
+  }, [persist]);
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const anchor = event.currentTarget;
+    const rect = anchor.getBoundingClientRect();
+    pressRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: rect.left,
+      startY: rect.top,
+      dragging: false,
+    };
+    suppressClickRef.current = false;
+    anchor.setPointerCapture?.(event.pointerId);
+    clearLongPressTimer();
+    longPressTimerRef.current = setTimeout(() => {
+      const press = pressRef.current;
+      if (!press || press.pointerId !== event.pointerId) return;
+      press.dragging = true;
+      suppressClickRef.current = true;
+      setDragging(true);
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        navigator.vibrate?.(15);
+      }
+    }, LONG_PRESS_MS);
   };
 
-  const showRoster = () => {
-    const root = rootRef.current ?? findRosterRoot();
-    if (!root) return;
-    rootRef.current = root;
-    root.style.display = "";
-    const x = stored.x ?? root.getBoundingClientRect().left;
-    const y = stored.y ?? root.getBoundingClientRect().top;
-    const clamped = clampPosition(root, x, y);
-    applyFloatingPosition(root, clamped.x, clamped.y);
-    persist({ hidden: false, x: clamped.x, y: clamped.y });
+  const onPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const press = pressRef.current;
+    const anchor = anchorRef.current;
+    if (!press || !anchor || press.pointerId !== event.pointerId || !press.dragging) {
+      return;
+    }
+
+    const dx = event.clientX - press.startClientX;
+    const dy = event.clientY - press.startClientY;
+    if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+    event.preventDefault();
+
+    const clamped = clampAnchorPosition(anchor, press.startX + dx, press.startY + dy);
+    applyAnchorPosition(anchor, clamped.x, clamped.y);
+    syncPanelToAnchor(stored.hidden);
+  };
+
+  const finishPointer = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const press = pressRef.current;
+    if (!press || press.pointerId !== event.pointerId) return;
+    clearLongPressTimer();
+    pressRef.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+
+    if (!press.dragging) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    persist({ hidden: stored.hidden, x: rect.left, y: rect.top });
+    setDragging(false);
+  };
+
+  const onToggleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (stored.hidden) showRoster();
+    else hideRoster();
   };
 
   if (!rosterFound) return null;
 
   return (
     <button
+      ref={anchorRef}
       type="button"
       data-mobile-agent-roster-toggle
-      onClick={stored.hidden ? showRoster : hideRoster}
-      className="fixed right-2 top-14 z-[140] min-h-8 rounded-md border border-amber-400/35 bg-black/80 px-2.5 py-1 font-mono text-[10px] font-semibold text-amber-100 shadow-lg backdrop-blur transition-colors hover:border-amber-300/60 hover:bg-black/90"
+      data-dragging={dragging ? "true" : "false"}
+      onClick={onToggleClick}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={finishPointer}
+      onPointerCancel={finishPointer}
+      className="fixed z-[140] min-h-10 select-none rounded-md border border-amber-400/35 bg-black/85 px-3 py-2 font-mono text-[11px] font-semibold text-amber-100 shadow-lg backdrop-blur transition-colors hover:border-amber-300/60 hover:bg-black/90 data-[dragging=true]:cursor-grabbing data-[dragging=true]:border-cyan-300/70"
+      style={{ touchAction: "none" }}
       aria-label={stored.hidden ? "แสดงแถบเอเจนต์" : "ซ่อนแถบเอเจนต์"}
-      title={stored.hidden ? "แสดงแถบเอเจนต์" : "ซ่อนแถบเอเจนต์"}
+      title="แตะเพื่อแสดงหรือซ่อน กดค้างแล้วลากเพื่อย้ายตำแหน่ง"
     >
       {stored.hidden ? "แสดงเอเจนต์" : "ซ่อนเอเจนต์"}
     </button>
