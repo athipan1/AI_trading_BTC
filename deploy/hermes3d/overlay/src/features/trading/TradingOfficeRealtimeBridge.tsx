@@ -31,9 +31,9 @@ const initialDiagnostics: BridgeDiagnostics = {
 };
 
 const STATUS_LABELS: Record<BridgeStatus, string> = {
-  connecting: "CONNECTING",
-  connected: "LIVE",
-  error: "ERROR",
+  connecting: "กำลังเชื่อมต่อ",
+  connected: "ออนไลน์",
+  error: "ขัดข้อง",
 };
 
 export function TradingOfficeRealtimeBridge() {
@@ -153,14 +153,14 @@ export function TradingOfficeRealtimeBridge() {
   }, [dispatch]);
 
   return (
-    <div className="fixed left-2 top-2 z-[100] font-mono text-[10px] text-cyan-100">
+    <div className="fixed left-2 top-2 z-[100] text-[10px] text-cyan-100">
       <button
         type="button"
         onClick={() => setShowDiagnostics((current) => !current)}
         className="pointer-events-auto flex min-h-8 items-center gap-1.5 rounded-md border border-cyan-400/40 bg-black/80 px-2 py-1 shadow-lg backdrop-blur transition-colors hover:border-cyan-300/60 hover:bg-black/90"
         aria-expanded={showDiagnostics}
         aria-controls="trading-realtime-diagnostics"
-        aria-label={showDiagnostics ? "Hide trading diagnostics" : "Show trading diagnostics"}
+        aria-label={showDiagnostics ? "ซ่อนสถานะระบบเทรด" : "แสดงสถานะระบบเทรด"}
       >
         <span
           aria-hidden="true"
@@ -168,8 +168,8 @@ export function TradingOfficeRealtimeBridge() {
         >
           ●
         </span>
-        <span>TRADING {STATUS_LABELS[diagnostics.status]}</span>
-        <span className="text-cyan-100/55">RX {diagnostics.received}</span>
+        <span>ระบบเทรด {STATUS_LABELS[diagnostics.status]}</span>
+        <span className="text-cyan-100/55">รับ {diagnostics.received}</span>
       </button>
 
       {showDiagnostics ? (
@@ -177,12 +177,12 @@ export function TradingOfficeRealtimeBridge() {
           id="trading-realtime-diagnostics"
           className="pointer-events-none mt-1 rounded-md border border-cyan-400/40 bg-black/80 px-2 py-1 leading-4 shadow-lg backdrop-blur"
         >
-          <div>TRADING SSE {diagnostics.status.toUpperCase()}</div>
+          <div>สถานะ SSE {STATUS_LABELS[diagnostics.status]}</div>
           <div>
-            RX {diagnostics.received} · MAP {diagnostics.mapped} · APPLY {diagnostics.applied}
+            รับ {diagnostics.received} · จับคู่ {diagnostics.mapped} · ใช้งาน {diagnostics.applied}
           </div>
-          <div>LAST {diagnostics.lastEvent}</div>
-          <div>TARGET {diagnostics.lastTargets}</div>
+          <div>เหตุการณ์ล่าสุด {diagnostics.lastEvent}</div>
+          <div>เป้าหมาย {diagnostics.lastTargets}</div>
         </div>
       ) : null}
     </div>
