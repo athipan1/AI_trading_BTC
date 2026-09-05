@@ -3,7 +3,7 @@ ARG HERMES3D_REF=beb76292747b816ef317aa6f9a3992e0014f81d9
 FROM node:22-slim AS source
 ARG HERMES3D_REF
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git \
+    && apt-get install -y --no-install-recommends ca-certificates git python3 \
     && rm -rf /var/lib/apt/lists/*
 RUN git clone --filter=blob:none https://github.com/iamlukethedev/Hermes3D.git /app \
     && cd /app \
@@ -11,6 +11,8 @@ RUN git clone --filter=blob:none https://github.com/iamlukethedev/Hermes3D.git /
     && rm -rf /app/.git
 WORKDIR /app
 COPY deploy/hermes3d/overlay/ /app/
+COPY deploy/hermes3d/patch_custom_runtime_analytics.py /tmp/patch_custom_runtime_analytics.py
+RUN python3 /tmp/patch_custom_runtime_analytics.py /app
 
 FROM node:22-slim AS deps
 WORKDIR /app
