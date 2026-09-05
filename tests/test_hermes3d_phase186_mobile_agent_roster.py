@@ -28,12 +28,12 @@ def test_phase186_supports_hide_restore_and_persistence() -> None:
 
 def test_phase186_supports_pointer_drag_and_viewport_clamping() -> None:
     source = BRIDGE.read_text(encoding="utf-8")
-    assert 'addEventListener("pointerdown"' in source
-    assert 'addEventListener("pointermove"' in source
+    assert "onPointerDown={onPointerDown}" in source
+    assert "onPointerMove={onPointerMove}" in source
+    assert "onPointerUp={finishPointer}" in source
     assert "DRAG_THRESHOLD_PX" in source
-    assert "clampPosition" in source
-    assert 'root.style.position = "fixed"' in source
-    assert 'root.style.touchAction = "none"' in source
+    assert "clampAnchorPosition" in source
+    assert 'style={{ touchAction: "none" }}' in source
 
 
 def test_phase186_targets_existing_upstream_roster_instead_of_replacing_it() -> None:
