@@ -44,9 +44,13 @@ def test_phase183_translates_upstream_visible_ui_without_changing_machine_contra
     assert all(token not in lowered for token in forbidden)
 
 
-def test_phase183_uses_exact_visible_text_translation_only() -> None:
+def test_phase183_preserves_exact_visible_text_translation_before_dynamic_rules() -> None:
     source = LOCALIZER.read_text(encoding="utf-8")
     assert "const normalized = normalize(value);" in source
-    assert "const translated = dictionary[normalized];" in source
+    assert 'const dictionary = locale === "th" ? EN_TO_TH : TH_TO_EN;' in source
+    assert "const direct = dictionary[value];" in source
+    assert "if (direct) return direct;" in source
+    assert "DYNAMIC_TRANSLATIONS" in source
+    assert "const translated = translateNormalized(normalized, locale);" in source
     assert "MutationObserver" in source
     assert "NodeFilter.SHOW_TEXT" in source
