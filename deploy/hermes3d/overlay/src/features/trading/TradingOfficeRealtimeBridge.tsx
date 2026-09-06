@@ -9,8 +9,18 @@ import {
 } from "@/features/trading/tradingEventAnimation";
 
 const EVENT_URL = "/api/trading-runtime?resource=events";
+const OFFICE_LOCALE_STORAGE_KEY = "hermes3d-office-locale";
+const MAX_HISTORY_ITEMS = 5;
 
 type BridgeStatus = "connecting" | "connected" | "error";
+type OfficeLocale = "th" | "en";
+
+type BridgeHistoryItem = {
+  event: string;
+  targets: string;
+  phase: string;
+  timestamp: string;
+};
 
 type BridgeDiagnostics = {
   status: BridgeStatus;
@@ -19,6 +29,7 @@ type BridgeDiagnostics = {
   applied: number;
   lastEvent: string;
   lastTargets: string;
+  history: BridgeHistoryItem[];
 };
 
 const initialDiagnostics: BridgeDiagnostics = {
@@ -28,12 +39,25 @@ const initialDiagnostics: BridgeDiagnostics = {
   applied: 0,
   lastEvent: "-",
   lastTargets: "-",
+  history: [],
 };
 
 const STATUS_LABELS: Record<BridgeStatus, string> = {
   connecting: "กำลังเชื่อมต่อ",
   connected: "ออนไลน์",
   error: "ขัดข้อง",
+};
+
+const readOfficeLocale = (): OfficeLocale => {
+  if (typeof window === "undefined") return "th";
+  return window.localStorage.getItem(OFFICE_LOCALE_STORAGE_KEY) === "en" ? "en" : "th";
+};
+
+const formatEventTime = (generatedAt?: string): string => {
+  const timestamp = generatedAt ? new Date(generatedAt) : new Date();
+  return Number.isNaN(timestamp.getTime())
+    ? new Date().toLocaleTimeString()
+    : timestamp.toLocaleTimeString();
 };
 
 export function TradingOfficeRealtimeBridge() {
@@ -85,6 +109,7 @@ export function TradingOfficeRealtimeBridge() {
 
       const instructions = mapTradingEventToAnimations(event);
       const targets = instructions.map((instruction) => instruction.agentId);
+      const phase = instructions[0]?.phase ?? "unmapped";
       let applied = 0;
 
       setDiagnostics((previous) => ({
@@ -94,10 +119,23 @@ export function TradingOfficeRealtimeBridge() {
         mapped: previous.mapped + (instructions.length > 0 ? 1 : 0),
         lastEvent: event.event,
         lastTargets: targets.length > 0 ? targets.join(",") : "-",
+        history:
+          instructions.length === 0
+            ? previous.history
+            : [
+                {
+                  event: event.event,
+                  targets: targets.join(","),
+                  phase,
+                  timestamp: formatEventTime(event.generated_at),
+                },
+                ...previous.history,
+              ].slice(0, MAX_HISTORY_ITEMS),
       }));
 
       if (instructions.length === 0) return;
 
+      const locale = readOfficeLocale();
       for (const instruction of instructions) {
         const agentId = instruction.agentId;
         const existingTimer = resetTimers.current[agentId];
@@ -107,6 +145,7 @@ export function TradingOfficeRealtimeBridge() {
         }
 
         const now = Date.now();
+        const speechText = instruction.speech[locale];
         const wasApplied = updateAgent(agentId, {
           status: instruction.status,
           runId:
@@ -114,7 +153,7 @@ export function TradingOfficeRealtimeBridge() {
               ? `trading-${event.event}-${now}`
               : null,
           runStartedAt: instruction.status === "running" ? now : null,
-          streamText: instruction.label,
+          streamText: speechText,
           latestPreview: instruction.label,
           lastActivityAt: now,
           hasUnseenActivity: true,
@@ -175,7 +214,7 @@ export function TradingOfficeRealtimeBridge() {
       {showDiagnostics ? (
         <div
           id="trading-realtime-diagnostics"
-          className="pointer-events-none mt-1 rounded-md border border-cyan-400/40 bg-black/80 px-2 py-1 leading-4 shadow-lg backdrop-blur"
+          className="pointer-events-none mt-1 max-w-[min(92vw,360px)] rounded-md border border-cyan-400/40 bg-black/80 px-2 py-1 leading-4 shadow-lg backdrop-blur"
         >
           <div>สถานะ SSE {STATUS_LABELS[diagnostics.status]}</div>
           <div>
@@ -183,6 +222,15 @@ export function TradingOfficeRealtimeBridge() {
           </div>
           <div>เหตุการณ์ล่าสุด {diagnostics.lastEvent}</div>
           <div>เป้าหมาย {diagnostics.lastTargets}</div>
+          {diagnostics.history.length > 0 ? (
+            <div className="mt-1 border-t border-cyan-300/20 pt-1 text-cyan-100/75">
+              {diagnostics.history.map((item, index) => (
+                <div key={`${item.timestamp}-${item.event}-${index}`}>
+                  {item.timestamp} · {item.event} · {item.targets}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
