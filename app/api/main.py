@@ -9,6 +9,7 @@ from app.integrations.hermes3d.events import Hermes3DEventStream
 from app.integrations.hermes3d.journal import Hermes3DEventJournal
 from app.integrations.hermes3d.projection import Hermes3DJournalStateProjection
 from app.integrations.hermes3d.router import build_hermes3d_router
+from app.integrations.hermes3d.simulator import Hermes3DValidationEventSimulator
 from app.market_data.service import MarketDataError, MarketDataService
 from app.monitoring.position_store import PositionStore
 from app.risk.engine import RiskEngine
@@ -58,11 +59,14 @@ hermes3d_events = Hermes3DEventStream(
     auto_state_paths=hermes3d_auto_state_paths,
     interval_seconds=settings.hermes3d_event_interval_seconds,
 )
+hermes3d_validation_simulator = Hermes3DValidationEventSimulator(hermes3d_journal)
 app.include_router(
     build_hermes3d_router(
         hermes3d_projection,
         hermes3d_events,
         analytics_reader=hermes3d_analytics,
+        validation_simulator=hermes3d_validation_simulator,
+        validation_simulator_enabled=settings.hermes3d_validation_simulator_enabled,
     )
 )
 
