@@ -10,6 +10,7 @@ from app.auto_trading.engine import TestnetAutoTrader
 from app.auto_trading.state_store import AutoTradeStateStore, AutoTradingHalted
 from app.execution.binance_testnet import BinanceTestnetBroker
 from app.integrations.hermes3d.journal import Hermes3DEventJournal
+from app.monitoring.binance_fill_reconciler import BinanceSpotFillSource, PositionFillReconciler
 from app.monitoring.position_store import PositionStore
 from app.notifications.line_messaging import LineMessagingNotifier
 from app.risk.engine import RiskEngine
@@ -148,6 +149,10 @@ def main() -> None:
     traders = build_traders(args)
     event_journal = Hermes3DEventJournal(args.event_journal)
     primary = traders[0]
+    reconciler = PositionFillReconciler(
+        position_store=primary.position_store,
+        fill_source=BinanceSpotFillSource(primary.broker),
+    )
     preflight = primary.broker.preflight(primary.symbol)
     print(json.dumps({"event": "PREFLIGHT_OK", "preflight": preflight}, sort_keys=True))
     if primary.notifier is not None:
@@ -202,6 +207,9 @@ def main() -> None:
                 )
                 if not args.watch:
                     raise
+
+        reconciliation = reconciler.reconcile_all()
+        print(json.dumps({"event": "FILL_RECONCILIATION", **reconciliation}, sort_keys=True))
 
         if not args.watch:
             break
