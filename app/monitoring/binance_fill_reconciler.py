@@ -1,0 +1,222 @@
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+from app.execution.binance_futures_testnet import BinanceFuturesTestnetBroker
+from app.execution.binance_testnet import BinanceTestnetBroker
+from app.monitoring.position_store import PositionStore
+
+
+@dataclass(frozen=True)
+class FillSummary:
+    order_id: str
+    fill_count: int
+    filled_quantity: float
+    quote_quantity: float
+    average_price: float
+    commission_by_asset: dict[str, float]
+    commission_quote_equivalent: float | None
+    commission_quote_complete: bool
+    realized_pnl: float | None
+    trade_ids: list[str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "order_id": self.order_id,
+            "fill_count": self.fill_count,
+            "filled_quantity": self.filled_quantity,
+            "quote_quantity": self.quote_quantity,
+            "average_price": self.average_price,
+            "commission_by_asset": dict(self.commission_by_asset),
+            "commission_quote_equivalent": self.commission_quote_equivalent,
+            "commission_quote_complete": self.commission_quote_complete,
+            "realized_pnl": self.realized_pnl,
+            "trade_ids": list(self.trade_ids),
+        }
+
+
+class OrderFillSource(Protocol):
+    source_name: str
+
+    def fetch_order_fills(self, symbol: str, order_id: str) -> FillSummary:
+        ...
+
+
+def aggregate_binance_fills(
+    fills: list[dict[str, Any]],
+    *,
+    order_id: str,
+    base_asset: str,
+    quote_asset: str,
+    realized_pnl_field: str | None = None,
+) -> FillSummary:
+    if not fills:
+        raise ValueError(f"no Binance fills found for order {order_id}")
+
+    total_quantity = 0.0
+    total_quote = 0.0
+    commissions: defaultdict[str, float] = defaultdict(float)
+    commission_quote = 0.0
+    commission_quote_complete = True
+    realized_pnl = 0.0 if realized_pnl_field else None
+    trade_ids: list[str] = []
+
+    for fill in fills:
+        fill_order_id = fill.get("orderId")
+        if fill_order_id is not None and str(fill_order_id) != str(order_id):
+            raise ValueError("Binance fill orderId does not match requested order")
+
+        price = float(fill.get("price", 0.0))
+        quantity = float(fill.get("qty", fill.get("quantity", 0.0)))
+        quote_quantity = float(fill.get("quoteQty", 0.0))
+        if quote_quantity <= 0 and price > 0 and quantity > 0:
+            quote_quantity = price * quantity
+        if price <= 0 or quantity <= 0 or quote_quantity <= 0:
+            raise ValueError("Binance fill contains non-positive price or quantity")
+
+        total_quantity += quantity
+        total_quote += quote_quantity
+        commission = float(fill.get("commission", 0.0))
+        commission_asset = str(fill.get("commissionAsset", "")).upper()
+        if commission < 0:
+            raise ValueError("Binance fill contains negative commission")
+        if commission_asset:
+            commissions[commission_asset] += commission
+            if commission_asset == quote_asset.upper():
+                commission_quote += commission
+            elif commission_asset == base_asset.upper():
+                commission_quote += commission * price
+            elif commission > 0:
+                commission_quote_complete = False
+        elif commission > 0:
+            commission_quote_complete = False
+
+        if realized_pnl_field:
+            assert realized_pnl is not None
+            realized_pnl += float(fill.get(realized_pnl_field, 0.0))
+
+        trade_id = fill.get("id")
+        if trade_id is not None:
+            trade_ids.append(str(trade_id))
+
+    if total_quantity <= 0:
+        raise ValueError(f"Binance fills for order {order_id} have zero quantity")
+
+    return FillSummary(
+        order_id=str(order_id),
+        fill_count=len(fills),
+        filled_quantity=total_quantity,
+        quote_quantity=total_quote,
+        average_price=total_quote / total_quantity,
+        commission_by_asset=dict(sorted(commissions.items())),
+        commission_quote_equivalent=commission_quote if commission_quote_complete else None,
+        commission_quote_complete=commission_quote_complete,
+        realized_pnl=realized_pnl,
+        trade_ids=trade_ids,
+    )
+
+
+class BinanceSpotFillSource:
+    source_name = "binance_spot_testnet_my_trades"
+
+    def __init__(self, broker: BinanceTestnetBroker) -> None:
+        self.broker = broker
+
+    def fetch_order_fills(self, symbol: str, order_id: str) -> FillSummary:
+        exchange_symbol, base, quote = self.broker._symbol_parts(symbol)
+        payload = self.broker._request(
+            "GET",
+            "/api/v3/myTrades",
+            params={"symbol": exchange_symbol, "orderId": int(order_id)},
+            signed=True,
+        )
+        if not isinstance(payload, list):
+            raise RuntimeError("Binance Spot Testnet returned invalid myTrades payload")
+        fills = [item for item in payload if isinstance(item, dict)]
+        return aggregate_binance_fills(
+            fills,
+            order_id=order_id,
+            base_asset=base,
+            quote_asset=quote,
+        )
+
+
+class BinanceFuturesFillSource:
+    source_name = "binance_futures_demo_user_trades"
+
+    def __init__(self, broker: BinanceFuturesTestnetBroker) -> None:
+        self.broker = broker
+
+    def fetch_order_fills(self, symbol: str, order_id: str) -> FillSummary:
+        exchange_symbol, base, quote = self.broker._symbol_parts(symbol)
+        payload = self.broker._request(
+            "GET",
+            "/fapi/v1/userTrades",
+            params={"symbol": exchange_symbol, "orderId": int(order_id)},
+            signed=True,
+        )
+        if not isinstance(payload, list):
+            raise RuntimeError("Binance Futures demo returned invalid userTrades payload")
+        fills = [item for item in payload if isinstance(item, dict)]
+        return aggregate_binance_fills(
+            fills,
+            order_id=order_id,
+            base_asset=base,
+            quote_asset=quote,
+            realized_pnl_field="realizedPnl",
+        )
+
+
+class PositionFillReconciler:
+    """Reconcile exchange fills into the existing PositionStore without owning positions."""
+
+    def __init__(self, *, position_store: PositionStore, fill_source: OrderFillSource) -> None:
+        self.position_store = position_store
+        self.fill_source = fill_source
+
+    def reconcile_all(self) -> dict[str, Any]:
+        positions = self.position_store.load()
+        reconciled = 0
+        pending = 0
+        errors: list[dict[str, str]] = []
+
+        for position in positions:
+            order_id = position.get("order_id")
+            symbol = position.get("symbol")
+            if order_id is None or not symbol:
+                continue
+            try:
+                entry = self.fill_source.fetch_order_fills(str(symbol), str(order_id))
+                exit_summary: FillSummary | None = None
+                if position.get("status") == "CLOSED" and position.get("exit_order_id") is not None:
+                    exit_summary = self.fill_source.fetch_order_fills(
+                        str(symbol), str(position["exit_order_id"])
+                    )
+                self.position_store.reconcile_fills(
+                    str(order_id),
+                    entry_fills=entry.to_dict(),
+                    exit_fills=exit_summary.to_dict() if exit_summary else None,
+                    source=self.fill_source.source_name,
+                )
+                reconciled += 1
+            except ValueError as exc:
+                pending += 1
+                errors.append({"order_id": str(order_id), "error": str(exc)})
+            except Exception as exc:
+                pending += 1
+                errors.append(
+                    {
+                        "order_id": str(order_id),
+                        "error": f"{exc.__class__.__name__}: {exc}",
+                    }
+                )
+
+        return {
+            "source": self.fill_source.source_name,
+            "positions_seen": len(positions),
+            "reconciled": reconciled,
+            "pending": pending,
+            "errors": errors,
+        }
