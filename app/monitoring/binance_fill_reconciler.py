@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 from app.execution.binance_futures_testnet import BinanceFuturesTestnetBroker
 from app.execution.binance_testnet import BinanceTestnetBroker
