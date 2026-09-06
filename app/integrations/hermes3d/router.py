@@ -17,9 +17,14 @@ class Hermes3DRuntimeReader(Protocol):
     def state(self) -> dict[str, Any]: ...
 
 
+class Hermes3DAnalyticsReader(Protocol):
+    def analytics(self) -> dict[str, Any]: ...
+
+
 def build_hermes3d_router(
     reader: Hermes3DRuntimeReader,
     event_stream: Hermes3DEventStream | None = None,
+    analytics_reader: Hermes3DAnalyticsReader | None = None,
 ) -> APIRouter:
     router = APIRouter(tags=["hermes3d"])
 
@@ -30,6 +35,12 @@ def build_hermes3d_router(
     @router.get("/state")
     def state() -> dict[str, Any]:
         return reader.state()
+
+    if analytics_reader is not None:
+
+        @router.get("/analytics")
+        def analytics() -> dict[str, Any]:
+            return analytics_reader.analytics()
 
     if event_stream is not None:
 

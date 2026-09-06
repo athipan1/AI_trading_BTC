@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException
 
 from app.config import get_settings
 from app.execution.paper import PaperBroker
+from app.integrations.hermes3d.analytics import Hermes3DTradingAnalyticsProjection
 from app.integrations.hermes3d.events import Hermes3DEventStream
 from app.integrations.hermes3d.journal import Hermes3DEventJournal
 from app.integrations.hermes3d.projection import Hermes3DJournalStateProjection
@@ -43,6 +44,12 @@ hermes3d_projection = Hermes3DJournalStateProjection(
     symbol=settings.symbol,
     timeframe=settings.timeframe,
 )
+hermes3d_analytics = Hermes3DTradingAnalyticsProjection(
+    journal=hermes3d_journal,
+    spot_position_store=hermes3d_spot_positions,
+    futures_position_store=hermes3d_futures_positions,
+    auto_state_paths=hermes3d_auto_state_paths,
+)
 hermes3d_events = Hermes3DEventStream(
     state_reader=hermes3d_projection,
     journal=hermes3d_journal,
@@ -51,7 +58,13 @@ hermes3d_events = Hermes3DEventStream(
     auto_state_paths=hermes3d_auto_state_paths,
     interval_seconds=settings.hermes3d_event_interval_seconds,
 )
-app.include_router(build_hermes3d_router(hermes3d_projection, hermes3d_events))
+app.include_router(
+    build_hermes3d_router(
+        hermes3d_projection,
+        hermes3d_events,
+        analytics_reader=hermes3d_analytics,
+    )
+)
 
 
 @app.get("/health")
