@@ -13,7 +13,8 @@
 .section-heading,
 .panel-heading,
 .agent-topline,
-.trading-room-footer {
+.trading-room-footer,
+.strategy-card-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -27,7 +28,8 @@
 
 .trading-room-header h1,
 .section-heading h2,
-.agent-card h3 {
+.agent-card h3,
+.strategy-card h3 {
   margin: 0;
 }
 
@@ -46,7 +48,8 @@
 }
 
 .subtitle,
-.agent-detail {
+.agent-detail,
+.analytics-note {
   color: #9eabb8;
 }
 
@@ -95,7 +98,9 @@
 }
 
 .summary-grid,
-.agents-grid {
+.agents-grid,
+.analytics-overview-grid,
+.strategy-grid {
   display: grid;
   gap: 16px;
 }
@@ -107,7 +112,8 @@
 }
 
 .panel,
-.agent-card {
+.agent-card,
+.strategy-card {
   border: 1px solid #27313d;
   border-radius: 18px;
   background: rgba(18, 24, 32, 0.88);
@@ -171,6 +177,7 @@
   text-transform: uppercase;
 }
 
+.analytics-section,
 .agents-section {
   max-width: 1400px;
   margin: 30px auto 0;
@@ -182,6 +189,111 @@
 
 .refresh-label {
   color: #8fa4b8;
+}
+
+.analytics-overview-grid,
+.strategy-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.analytics-card {
+  min-height: 100%;
+}
+
+.analytics-primary,
+.strategy-pnl {
+  margin-bottom: 16px;
+  padding: 16px;
+  border-radius: 14px;
+  background: #111923;
+}
+
+.analytics-primary span,
+.strategy-pnl span,
+.strategy-card-heading span {
+  display: block;
+  color: #748498;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.analytics-primary strong,
+.strategy-pnl strong {
+  display: block;
+  margin-top: 6px;
+  font-size: clamp(22px, 3vw, 30px);
+  letter-spacing: -0.02em;
+}
+
+.status-safe {
+  color: #7fe0ad !important;
+}
+
+.status-danger {
+  color: #ff9c9c !important;
+}
+
+.analytics-note {
+  margin: 14px 0 0;
+  font-size: 12px;
+}
+
+.strategy-grid {
+  margin-top: 16px;
+}
+
+.strategy-card {
+  padding: 18px;
+}
+
+.strategy-card-heading {
+  margin-bottom: 14px;
+  align-items: flex-start;
+}
+
+.strategy-card-heading h3 {
+  margin-top: 4px;
+  font-size: 20px;
+}
+
+.strategy-card-heading strong {
+  border-radius: 999px;
+  padding: 6px 9px;
+  background: #172130;
+  color: #b9d6f3;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.analytics-unavailable {
+  display: flex;
+  gap: 8px;
+  flex-direction: column;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid #5c4b2c;
+  border-radius: 14px;
+  background: rgba(82, 62, 26, 0.32);
+  color: #f2d89b;
+}
+
+.data-quality-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding: 13px 15px;
+  border: 1px solid #2a3542;
+  border-radius: 14px;
+  background: rgba(14, 20, 28, 0.78);
+  color: #8796a8;
+  font-size: 12px;
+}
+
+.data-quality-strip strong {
+  color: #ffd479;
 }
 
 .agents-grid {
@@ -244,7 +356,9 @@
 
 @media (max-width: 1000px) {
   .summary-grid,
-  .agents-grid {
+  .agents-grid,
+  .analytics-overview-grid,
+  .strategy-grid {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -267,6 +381,8 @@
 
   .summary-grid,
   .agents-grid,
+  .analytics-overview-grid,
+  .strategy-grid,
   .metric-grid,
   .metric-grid.compact {
     grid-template-columns: 1fr;

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ALLOWED_RESOURCES = new Set(["health", "state", "registry", "events"]);
+const ALLOWED_RESOURCES = new Set(["health", "state", "registry", "analytics", "events"]);
 
 const normalizeRuntimeUrl = (value: string): string => {
   const parsed = new URL(value.trim());
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   const resource = request.nextUrl.searchParams.get("resource") ?? "state";
   if (!ALLOWED_RESOURCES.has(resource)) {
     return NextResponse.json(
-      { error: "Trading Room is read-only. Allowed resources: health, state, registry, events." },
+      { error: "Trading Room is read-only. Allowed resources: health, state, registry, analytics, events." },
       { status: 400 }
     );
   }
