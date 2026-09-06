@@ -55,18 +55,53 @@ class Hermes3DTradingAnalyticsProjection:
         return None
 
     @classmethod
+    def _realized_pnl(cls, position: dict[str, Any]) -> tuple[float | None, str]:
+        if position.get("status") != "CLOSED":
+            return None, "unavailable"
+        value = position.get("net_realized_pnl")
+        if value is not None:
+            try:
+                return float(value), "exchange_reconciled"
+            except (TypeError, ValueError):
+                pass
+        return cls._estimated_pnl(position), "entry_exit_estimate"
+
+    @classmethod
     def _trade_summary(cls, positions: list[dict[str, Any]]) -> dict[str, Any]:
         open_positions = [item for item in positions if item.get("status") == "OPEN"]
         closed_positions = [item for item in positions if item.get("status") == "CLOSED"]
-        pnl_values = [pnl for item in closed_positions if (pnl := cls._estimated_pnl(item)) is not None]
+        evaluated = [
+            (pnl, basis)
+            for item in closed_positions
+            if (result := cls._realized_pnl(item))[0] is not None
+            for pnl, basis in [result]
+        ]
+        pnl_values = [pnl for pnl, _ in evaluated]
 
         winning_trades = sum(pnl > 0 for pnl in pnl_values)
         losing_trades = sum(pnl < 0 for pnl in pnl_values)
         breakeven_trades = sum(pnl == 0 for pnl in pnl_values)
         gross_profit = sum(pnl for pnl in pnl_values if pnl > 0)
         gross_loss = sum(pnl for pnl in pnl_values if pnl < 0)
-        estimated_realized_pnl = sum(pnl_values)
+        realized_pnl = sum(pnl_values)
         evaluated_trades = winning_trades + losing_trades + breakeven_trades
+        reconciled_trades = sum(basis == "exchange_reconciled" for _, basis in evaluated)
+        estimated_trades = sum(basis == "entry_exit_estimate" for _, basis in evaluated)
+
+        commissions = 0.0
+        commission_complete = True
+        slippages: list[float] = []
+        for item in closed_positions:
+            entry_fee = item.get("entry_commission_quote_equivalent")
+            exit_fee = item.get("exit_commission_quote_equivalent")
+            if entry_fee is None or exit_fee is None:
+                commission_complete = False
+            else:
+                commissions += float(entry_fee) + float(exit_fee)
+            for key in ("entry_slippage_bps", "exit_slippage_bps"):
+                value = item.get(key)
+                if value is not None:
+                    slippages.append(float(value))
 
         return {
             "open_positions": len(open_positions),
@@ -80,7 +115,14 @@ class Hermes3DTradingAnalyticsProjection:
             else 0.0,
             "gross_profit_usdt": round(gross_profit, 8),
             "gross_loss_usdt": round(gross_loss, 8),
-            "estimated_realized_pnl_usdt": round(estimated_realized_pnl, 8),
+            "realized_pnl_usdt": round(realized_pnl, 8),
+            "estimated_realized_pnl_usdt": round(realized_pnl, 8),
+            "reconciled_trades": reconciled_trades,
+            "estimated_trades": estimated_trades,
+            "commission_usdt": round(commissions, 8) if commission_complete else None,
+            "average_slippage_bps": round(sum(slippages) / len(slippages), 6)
+            if slippages
+            else None,
             "profit_factor": round(gross_profit / abs(gross_loss), 6) if gross_loss < 0 else None,
         }
 
@@ -123,6 +165,34 @@ class Hermes3DTradingAnalyticsProjection:
             "halted_strategies": halted,
         }
 
+    @staticmethod
+    def _data_quality(closed_positions: list[dict[str, Any]]) -> dict[str, Any]:
+        closed_count = len(closed_positions)
+        reconciled_count = sum(
+            item.get("reconciliation_status") == "RECONCILED" for item in closed_positions
+        )
+        partial_count = sum(
+            item.get("reconciliation_status") == "PARTIAL" for item in closed_positions
+        )
+        if closed_count and reconciled_count == closed_count:
+            pnl_basis = "exchange_reconciled"
+        elif reconciled_count or partial_count:
+            pnl_basis = "mixed_exchange_reconciled_and_estimate"
+        else:
+            pnl_basis = "entry_exit_estimate"
+
+        coverage = (reconciled_count / closed_count) * 100 if closed_count else 0.0
+        return {
+            "pnl_basis": pnl_basis,
+            "fees_included": bool(closed_count) and reconciled_count == closed_count,
+            "slippage_included": bool(reconciled_count or partial_count),
+            "exchange_fill_reconciliation": bool(reconciled_count or partial_count),
+            "reconciliation_coverage_pct": round(coverage, 4),
+            "reconciled_closed_trades": reconciled_count,
+            "partial_reconciliation_trades": partial_count,
+            "journal_window": "bounded_recent_suffix",
+        }
+
     def analytics(self) -> dict[str, Any]:
         positions = self._positions()
         portfolio = self._trade_summary(positions)
@@ -145,11 +215,5 @@ class Hermes3DTradingAnalyticsProjection:
             },
             "risk": self._risk_metrics(),
             "strategies": self._strategy_metrics(positions),
-            "data_quality": {
-                "pnl_basis": "entry_exit_estimate",
-                "fees_included": False,
-                "slippage_included": False,
-                "exchange_fill_reconciliation": False,
-                "journal_window": "bounded_recent_suffix",
-            },
+            "data_quality": self._data_quality(closed_positions),
         }
