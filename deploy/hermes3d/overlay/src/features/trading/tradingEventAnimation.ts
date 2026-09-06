@@ -5,16 +5,29 @@ export type TradingRuntimeEvent = {
   payload?: Record<string, unknown>;
 };
 
+export type TradingAgentPhase =
+  | "signal_ready"
+  | "risk_approved"
+  | "order_open"
+  | "take_profit"
+  | "stop_loss"
+  | "halted";
+
 export type TradingAnimationInstruction = {
   agentId: string;
   status: "idle" | "running" | "error";
   durationMs: number | null;
+  phase: TradingAgentPhase;
   label: string;
+  speech: {
+    th: string;
+    en: string;
+  };
 };
 
 const strategyFromPayload = (event: TradingRuntimeEvent): string | null => {
   const strategyId = event.payload?.strategy_id;
-  return typeof strategyId === "string" && strategyId.trim() ? strategyId : null;
+  return typeof strategyId === "string" && strategyId.trim() ? strategyId.trim() : null;
 };
 
 const eventLabel = (event: TradingRuntimeEvent): string => {
@@ -37,77 +50,100 @@ const eventLabel = (event: TradingRuntimeEvent): string => {
   return event.event;
 };
 
+const instruction = (
+  event: TradingRuntimeEvent,
+  params: Omit<TradingAnimationInstruction, "label">,
+): TradingAnimationInstruction => ({
+  ...params,
+  label: eventLabel(event),
+});
+
 export const mapTradingEventToAnimations = (
   event: TradingRuntimeEvent,
 ): TradingAnimationInstruction[] => {
-  const label = eventLabel(event);
   const strategyId = strategyFromPayload(event);
 
   switch (event.event) {
     case "BUY_READY":
-    case "SHORT_READY":
       return [
-        {
+        instruction(event, {
           agentId: strategyId ?? event.agent_id,
           status: "running",
-          durationMs: 8_000,
-          label,
-        },
+          durationMs: 4_000,
+          phase: "signal_ready",
+          speech: { th: "เจอสัญญาณ Buy", en: "Buy signal ready" },
+        }),
+      ];
+    case "SHORT_READY":
+      return [
+        instruction(event, {
+          agentId: strategyId ?? event.agent_id,
+          status: "running",
+          durationMs: 4_000,
+          phase: "signal_ready",
+          speech: { th: "เจอสัญญาณ Short", en: "Short signal ready" },
+        }),
       ];
     case "RISK_PASS":
       return [
-        {
+        instruction(event, {
           agentId: "risk-manager",
           status: "running",
-          durationMs: 7_000,
-          label,
-        },
+          durationMs: 3_500,
+          phase: "risk_approved",
+          speech: { th: "Risk ผ่าน", en: "Risk passed" },
+        }),
         ...(strategyId
           ? [
-              {
+              instruction(event, {
                 agentId: strategyId,
                 status: "running" as const,
-                durationMs: 4_000,
-                label,
-              },
+                durationMs: 3_000,
+                phase: "risk_approved" as const,
+                speech: { th: "พร้อมเข้าออเดอร์", en: "Ready to enter" },
+              }),
             ]
           : []),
       ];
     case "ORDER_OPEN":
       return [
-        {
+        instruction(event, {
           agentId: "positions",
           status: "running",
-          durationMs: 10_000,
-          label,
-        },
+          durationMs: 4_000,
+          phase: "order_open",
+          speech: { th: "เปิดออเดอร์แล้ว", en: "Order opened" },
+        }),
       ];
     case "TP_HIT":
       return [
-        {
+        instruction(event, {
           agentId: "positions",
           status: "running",
-          durationMs: 12_000,
-          label,
-        },
+          durationMs: 4_500,
+          phase: "take_profit",
+          speech: { th: "TP สำเร็จ", en: "Take profit hit" },
+        }),
       ];
     case "SL_HIT":
       return [
-        {
+        instruction(event, {
           agentId: "positions",
           status: "error",
-          durationMs: 12_000,
-          label,
-        },
+          durationMs: 4_500,
+          phase: "stop_loss",
+          speech: { th: "โดน Stop Loss", en: "Stop loss hit" },
+        }),
       ];
     case "CIRCUIT_BREAKER":
       return [
-        {
+        instruction(event, {
           agentId: "risk-manager",
           status: "error",
           durationMs: null,
-          label,
-        },
+          phase: "halted",
+          speech: { th: "หยุดระบบชั่วคราว", en: "Trading halted" },
+        }),
       ];
     default:
       return [];
