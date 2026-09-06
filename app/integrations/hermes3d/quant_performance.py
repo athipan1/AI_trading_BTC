@@ -106,6 +106,43 @@ class QuantPerformanceProjection:
         return entry_cost + exit_cost
 
     @classmethod
+    def _path_excursion(cls, position: dict[str, Any]) -> dict[str, float] | None:
+        entry = cls._float(position.get("entry_fill_price"))
+        if entry is None:
+            entry = cls._float(position.get("entry_price"))
+        quantity = cls._float(position.get("entry_filled_quantity"))
+        if quantity is None:
+            quantity = cls._float(position.get("quantity"))
+        highest = cls._float(position.get("trade_path_highest_price"))
+        lowest = cls._float(position.get("trade_path_lowest_price"))
+        risk, used_fallback = cls._initial_risk_usdt(position)
+        if (
+            entry is None
+            or quantity is None
+            or highest is None
+            or lowest is None
+            or risk is None
+            or used_fallback
+        ):
+            return None
+
+        side = str(position.get("side", "buy")).lower()
+        if side == "buy":
+            mfe_usdt = max(0.0, (highest - entry) * quantity)
+            mae_usdt = min(0.0, (lowest - entry) * quantity)
+        elif side == "sell":
+            mfe_usdt = max(0.0, (entry - lowest) * quantity)
+            mae_usdt = min(0.0, (entry - highest) * quantity)
+        else:
+            return None
+        return {
+            "mfe_usdt": mfe_usdt,
+            "mae_usdt": mae_usdt,
+            "mfe_r": mfe_usdt / risk,
+            "mae_r": mae_usdt / risk,
+        }
+
+    @classmethod
     def _equity_metrics(cls, positions: list[dict[str, Any]]) -> dict[str, Any]:
         sortable: list[tuple[datetime, str, float]] = []
         for item in positions:
@@ -154,6 +191,10 @@ class QuantPerformanceProjection:
         risk_fallback_count = 0
         holding_seconds: list[float] = []
         slippage_costs: list[float] = []
+        mae_usdt_values: list[float] = []
+        mfe_usdt_values: list[float] = []
+        mae_r_values: list[float] = []
+        mfe_r_values: list[float] = []
         fees = 0.0
         fee_complete = True
         gross_abs_pnl = 0.0
@@ -164,6 +205,13 @@ class QuantPerformanceProjection:
             if risk is not None:
                 r_multiples.append(pnl / risk)
                 risk_fallback_count += int(used_fallback)
+
+            path = cls._path_excursion(item)
+            if path is not None:
+                mae_usdt_values.append(path["mae_usdt"])
+                mfe_usdt_values.append(path["mfe_usdt"])
+                mae_r_values.append(path["mae_r"])
+                mfe_r_values.append(path["mfe_r"])
 
             holding = cls._holding_seconds(item)
             if holding is not None:
@@ -215,6 +263,21 @@ class QuantPerformanceProjection:
             if reconciled
             else 0.0,
             "r_multiple_stop_fallback_trades": risk_fallback_count,
+            "average_mae_usdt": round(sum(mae_usdt_values) / len(mae_usdt_values), 8)
+            if mae_usdt_values
+            else None,
+            "average_mfe_usdt": round(sum(mfe_usdt_values) / len(mfe_usdt_values), 8)
+            if mfe_usdt_values
+            else None,
+            "average_mae_r": round(sum(mae_r_values) / len(mae_r_values), 6)
+            if mae_r_values
+            else None,
+            "average_mfe_r": round(sum(mfe_r_values) / len(mfe_r_values), 6)
+            if mfe_r_values
+            else None,
+            "mae_mfe_coverage_pct": round((len(mae_r_values) / len(reconciled)) * 100, 4)
+            if reconciled
+            else 0.0,
             "average_holding_seconds": round(average_holding, 3)
             if average_holding is not None
             else None,
@@ -252,4 +315,51 @@ class QuantPerformanceProjection:
                 ]
             )
             for strategy_id in strategy_ids
+        }
+
+    @classmethod
+    def by_market_regime(cls, positions: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        regimes = sorted(
+            {
+                str(item.get("entry_market_regime"))
+                for item in positions
+                if item.get("entry_market_regime")
+            }
+        )
+        return {
+            regime: cls.summarize(
+                [item for item in positions if str(item.get("entry_market_regime")) == regime]
+            )
+            for regime in regimes
+        }
+
+    @classmethod
+    def data_availability(cls, positions: list[dict[str, Any]]) -> dict[str, Any]:
+        reconciled = cls._reconciled_closed(positions)
+        total = len(reconciled)
+        initial_stop_count = sum(
+            cls._float(item.get("initial_stop_loss")) is not None
+            and item.get("initial_stop_loss_source") == "entry_snapshot"
+            for item in reconciled
+        )
+        path_count = sum(cls._path_excursion(item) is not None for item in reconciled)
+        regime_count = sum(bool(item.get("entry_market_regime")) for item in reconciled)
+
+        def coverage(count: int) -> float:
+            return round((count / total) * 100, 4) if total else 0.0
+
+        return {
+            "advanced_metrics_basis": "exchange_reconciled_closed_trades_only",
+            "trade_path_basis": "runner_live_price_samples",
+            "initial_stop_loss_coverage_pct": coverage(initial_stop_count),
+            "mae_mfe_available": path_count > 0,
+            "mae_mfe_coverage_pct": coverage(path_count),
+            "mae_mfe_reason": None
+            if path_count == total and total
+            else "prospective_trade_path_samples_required",
+            "market_regime_available": regime_count > 0,
+            "market_regime_coverage_pct": coverage(regime_count),
+            "market_regime_reason": None
+            if regime_count == total and total
+            else "prospective_entry_regime_snapshot_required",
         }
