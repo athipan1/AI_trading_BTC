@@ -31,12 +31,7 @@ class Hermes3DQuantAnalyticsProjection:
         payload["quant_performance"] = {
             "portfolio": QuantPerformanceProjection.summarize(positions),
             "strategies": QuantPerformanceProjection.by_strategy(positions),
-            "data_quality": {
-                "advanced_metrics_basis": "exchange_reconciled_closed_trades_only",
-                "mae_mfe_available": False,
-                "mae_mfe_reason": "intratrade_extrema_not_persisted",
-                "market_regime_available": False,
-                "market_regime_reason": "entry_regime_not_persisted",
-            },
+            "market_regimes": QuantPerformanceProjection.by_market_regime(positions),
+            "data_quality": QuantPerformanceProjection.data_availability(positions),
         }
         return payload
