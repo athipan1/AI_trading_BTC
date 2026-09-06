@@ -16,7 +16,7 @@ class FlakyFillSource:
 
     def fetch_order_fills(self, symbol: str, order_id: str) -> FillSummary:
         self.calls.append(order_id)
-        if self.calls.count(order_id) == 1:
+        if len(self.calls) == 1:
             raise ValueError(f"no Binance fills found for order {order_id}")
         price = 100.0 if order_id == "entry" else 110.0
         return FillSummary(
