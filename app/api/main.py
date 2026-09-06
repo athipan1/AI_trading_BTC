@@ -8,6 +8,7 @@ from app.integrations.hermes3d.analytics import Hermes3DTradingAnalyticsProjecti
 from app.integrations.hermes3d.events import Hermes3DEventStream
 from app.integrations.hermes3d.journal import Hermes3DEventJournal
 from app.integrations.hermes3d.projection import Hermes3DJournalStateProjection
+from app.integrations.hermes3d.quant_analytics import Hermes3DQuantAnalyticsProjection
 from app.integrations.hermes3d.router import build_hermes3d_router
 from app.integrations.hermes3d.simulator import Hermes3DValidationEventSimulator
 from app.market_data.service import MarketDataError, MarketDataService
@@ -45,11 +46,16 @@ hermes3d_projection = Hermes3DJournalStateProjection(
     symbol=settings.symbol,
     timeframe=settings.timeframe,
 )
-hermes3d_analytics = Hermes3DTradingAnalyticsProjection(
+hermes3d_base_analytics = Hermes3DTradingAnalyticsProjection(
     journal=hermes3d_journal,
     spot_position_store=hermes3d_spot_positions,
     futures_position_store=hermes3d_futures_positions,
     auto_state_paths=hermes3d_auto_state_paths,
+)
+hermes3d_analytics = Hermes3DQuantAnalyticsProjection(
+    base_projection=hermes3d_base_analytics,
+    spot_position_store=hermes3d_spot_positions,
+    futures_position_store=hermes3d_futures_positions,
 )
 hermes3d_events = Hermes3DEventStream(
     state_reader=hermes3d_projection,
