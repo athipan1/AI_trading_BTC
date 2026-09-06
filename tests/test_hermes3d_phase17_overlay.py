@@ -32,6 +32,15 @@ def test_phase17_bridge_is_read_only_event_source() -> None:
     assert "BINANCE" not in source
 
 
+def test_phase17_bridge_queues_events_until_agents_hydrate() -> None:
+    source = BRIDGE.read_text(encoding="utf-8")
+    assert "pendingInstructions" in source
+    assert "state.agents.some" in source
+    assert "applyInstruction(pending.eventName, pending.instruction)" in source
+    assert "delete pendingInstructions.current[agentId]" in source
+    assert "queued:" in source
+
+
 def test_phase17_bridge_mounts_inside_office_agent_store() -> None:
     source = OFFICE_PAGE.read_text(encoding="utf-8")
     provider_pos = source.index("<AgentStoreProvider>")
