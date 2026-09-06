@@ -12,6 +12,7 @@ from app.execution.binance_testnet import BinanceTestnetBroker
 from app.integrations.hermes3d.journal import Hermes3DEventJournal
 from app.monitoring.binance_fill_reconciler import BinanceSpotFillSource, PositionFillReconciler
 from app.monitoring.position_store import PositionStore
+from app.monitoring.trade_path_observer import TradePathObserver
 from app.notifications.line_messaging import LineMessagingNotifier
 from app.risk.engine import RiskEngine
 from app.strategies.baseline import BaselineStrategy
@@ -149,6 +150,7 @@ def main() -> None:
     traders = build_traders(args)
     event_journal = Hermes3DEventJournal(args.event_journal)
     primary = traders[0]
+    trade_path = TradePathObserver(primary.position_store)
     reconciler = PositionFillReconciler(
         position_store=primary.position_store,
         fill_source=BinanceSpotFillSource(primary.broker),
@@ -175,6 +177,7 @@ def main() -> None:
         for trader in traders:
             try:
                 result = trader.run_once()
+                trade_path.capture_result(result)
                 event_journal.publish_result(result)
                 print(json.dumps(result, sort_keys=True))
             except AutoTradingHalted as exc:
@@ -207,6 +210,31 @@ def main() -> None:
                 )
                 if not args.watch:
                     raise
+
+        try:
+            live_price = primary.broker.current_price(primary.symbol)
+            observed = trade_path.observe_open_positions(primary.symbol, float(live_price))
+            print(
+                json.dumps(
+                    {
+                        "event": "TRADE_PATH_OBSERVATION",
+                        "source": "spot_live_price",
+                        "price": live_price,
+                        "positions_observed": observed,
+                    },
+                    sort_keys=True,
+                )
+            )
+        except Exception as exc:
+            print(
+                json.dumps(
+                    {
+                        "event": "TRADE_PATH_OBSERVATION_WARNING",
+                        "error": f"{exc.__class__.__name__}: {exc}",
+                    },
+                    sort_keys=True,
+                )
+            )
 
         reconciliation = reconciler.reconcile_all()
         print(json.dumps({"event": "FILL_RECONCILIATION", **reconciliation}, sort_keys=True))
