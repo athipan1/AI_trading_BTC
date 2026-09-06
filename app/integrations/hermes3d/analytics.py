@@ -166,7 +166,20 @@ class Hermes3DTradingAnalyticsProjection:
         }
 
     @staticmethod
-    def _data_quality(closed_positions: list[dict[str, Any]]) -> dict[str, Any]:
+    def _parse_timestamp(value: Any) -> datetime | None:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+
+    @classmethod
+    def _data_quality(cls, positions: list[dict[str, Any]]) -> dict[str, Any]:
+        closed_positions = [item for item in positions if item.get("status") == "CLOSED"]
         closed_count = len(closed_positions)
         reconciled_count = sum(
             item.get("reconciliation_status") == "RECONCILED" for item in closed_positions
@@ -181,6 +194,37 @@ class Hermes3DTradingAnalyticsProjection:
         else:
             pnl_basis = "entry_exit_estimate"
 
+        pending_positions = [
+            item
+            for item in positions
+            if item.get("order_id")
+            and str(item.get("reconciliation_status", "PENDING")).upper()
+            not in {"RECONCILED", "PARTIAL", "ENTRY_RECONCILED"}
+        ]
+        pending_timestamps = [
+            timestamp
+            for item in pending_positions
+            if (timestamp := cls._parse_timestamp(item.get("closed_at") or item.get("created_at")))
+            is not None
+        ]
+        reconciled_timestamps = [
+            timestamp
+            for item in positions
+            if (timestamp := cls._parse_timestamp(item.get("reconciled_at"))) is not None
+        ]
+        now = datetime.now(UTC)
+        oldest_pending_age_seconds = (
+            round((now - min(pending_timestamps)).total_seconds(), 3)
+            if pending_timestamps
+            else None
+        )
+        last_reconciliation_at = (
+            max(reconciled_timestamps).isoformat() if reconciled_timestamps else None
+        )
+        reconciliation_error_count = sum(
+            bool(item.get("last_reconciliation_error")) for item in positions
+        )
+
         coverage = (reconciled_count / closed_count) * 100 if closed_count else 0.0
         return {
             "pnl_basis": pnl_basis,
@@ -190,6 +234,10 @@ class Hermes3DTradingAnalyticsProjection:
             "reconciliation_coverage_pct": round(coverage, 4),
             "reconciled_closed_trades": reconciled_count,
             "partial_reconciliation_trades": partial_count,
+            "pending_reconciliation_trades": len(pending_positions),
+            "oldest_pending_age_seconds": oldest_pending_age_seconds,
+            "last_reconciliation_at": last_reconciliation_at,
+            "reconciliation_error_count": reconciliation_error_count,
             "journal_window": "bounded_recent_suffix",
         }
 
@@ -215,5 +263,5 @@ class Hermes3DTradingAnalyticsProjection:
             },
             "risk": self._risk_metrics(),
             "strategies": self._strategy_metrics(positions),
-            "data_quality": self._data_quality(closed_positions),
+            "data_quality": self._data_quality(positions),
         }

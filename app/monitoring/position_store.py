@@ -80,6 +80,10 @@ class PositionStore:
             "reconciliation_status": "PENDING",
             "reconciliation_source": None,
             "reconciled_at": None,
+            "reconciliation_attempts": 0,
+            "last_reconciliation_attempt_at": None,
+            "last_reconciliation_error": None,
+            "last_reconciliation_error_at": None,
             "entry_fill_price": None,
             "entry_filled_quantity": None,
             "entry_fill_count": None,
@@ -233,6 +237,40 @@ class PositionStore:
         self.save(positions)
         return target
 
+    def mark_reconciliation_attempt(self, order_id: str) -> dict[str, Any]:
+        positions = self.load()
+        target: dict[str, Any] | None = None
+        for item in positions:
+            if str(item.get("order_id")) != str(order_id):
+                continue
+            item["reconciliation_attempts"] = int(item.get("reconciliation_attempts") or 0) + 1
+            item["last_reconciliation_attempt_at"] = self._now()
+            if item.get("reconciliation_status") is None:
+                item["reconciliation_status"] = "PENDING"
+            target = item
+            break
+        if target is None:
+            raise KeyError(f"unknown tracked order: {order_id}")
+        self.save(positions)
+        return target
+
+    def mark_reconciliation_error(self, order_id: str, error: str) -> dict[str, Any]:
+        positions = self.load()
+        target: dict[str, Any] | None = None
+        for item in positions:
+            if str(item.get("order_id")) != str(order_id):
+                continue
+            item["last_reconciliation_error"] = str(error)
+            item["last_reconciliation_error_at"] = self._now()
+            if item.get("reconciliation_status") not in {"RECONCILED", "PARTIAL"}:
+                item["reconciliation_status"] = "PENDING"
+            target = item
+            break
+        if target is None:
+            raise KeyError(f"unknown tracked order: {order_id}")
+        self.save(positions)
+        return target
+
     @staticmethod
     def _slippage_bps(*, side: str, reference_price: float, actual_price: float) -> float | None:
         if reference_price <= 0 or actual_price <= 0:
@@ -280,6 +318,8 @@ class PositionStore:
         )
         target["reconciliation_source"] = source
         target["reconciled_at"] = self._now()
+        target["last_reconciliation_error"] = None
+        target["last_reconciliation_error_at"] = None
 
         if target.get("status") != "CLOSED":
             target["reconciliation_status"] = "ENTRY_RECONCILED"
