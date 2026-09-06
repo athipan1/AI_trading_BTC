@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAgentStore } from "@/features/agents/state/store";
 import {
   mapTradingEventToAnimations,
+  type TradingAnimationInstruction,
   type TradingRuntimeEvent,
 } from "@/features/trading/tradingEventAnimation";
 
@@ -27,9 +28,15 @@ type BridgeDiagnostics = {
   received: number;
   mapped: number;
   applied: number;
+  queued: number;
   lastEvent: string;
   lastTargets: string;
   history: BridgeHistoryItem[];
+};
+
+type PendingInstruction = {
+  eventName: string;
+  instruction: TradingAnimationInstruction;
 };
 
 const initialDiagnostics: BridgeDiagnostics = {
@@ -37,6 +44,7 @@ const initialDiagnostics: BridgeDiagnostics = {
   received: 0,
   mapped: 0,
   applied: 0,
+  queued: 0,
   lastEvent: "-",
   lastTargets: "-",
   history: [],
@@ -63,18 +71,13 @@ const formatEventTime = (generatedAt?: string): string => {
 export function TradingOfficeRealtimeBridge() {
   const { state, dispatch } = useAgentStore();
   const resetTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pendingInstructions = useRef<Record<string, PendingInstruction>>({});
   const agentsRef = useRef(state.agents);
   const [diagnostics, setDiagnostics] = useState<BridgeDiagnostics>(initialDiagnostics);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
 
-  useEffect(() => {
-    agentsRef.current = state.agents;
-  }, [state.agents]);
-
-  useEffect(() => {
-    const source = new EventSource(EVENT_URL);
-
-    const updateAgent = (
+  const updateAgent = useCallback(
+    (
       agentId: string,
       patch: {
         status: "idle" | "running" | "error";
@@ -89,7 +92,79 @@ export function TradingOfficeRealtimeBridge() {
       if (!agentsRef.current.some((agent) => agent.agentId === agentId)) return false;
       dispatch({ type: "updateAgent", agentId, patch });
       return true;
-    };
+    },
+    [dispatch],
+  );
+
+  const applyInstruction = useCallback(
+    (eventName: string, instruction: TradingAnimationInstruction): boolean => {
+      const agentId = instruction.agentId;
+      if (!agentsRef.current.some((agent) => agent.agentId === agentId)) return false;
+
+      const existingTimer = resetTimers.current[agentId];
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        delete resetTimers.current[agentId];
+      }
+
+      const now = Date.now();
+      const speechText = instruction.speech[readOfficeLocale()];
+      const wasApplied = updateAgent(agentId, {
+        status: instruction.status,
+        runId:
+          instruction.status === "running"
+            ? `trading-${eventName}-${now}`
+            : null,
+        runStartedAt: instruction.status === "running" ? now : null,
+        streamText: speechText,
+        latestPreview: instruction.label,
+        lastActivityAt: now,
+        hasUnseenActivity: true,
+      });
+      if (!wasApplied) return false;
+
+      if (instruction.durationMs !== null) {
+        resetTimers.current[agentId] = setTimeout(() => {
+          updateAgent(agentId, {
+            status: "idle",
+            runId: null,
+            runStartedAt: null,
+            streamText: null,
+            latestPreview: instruction.label,
+            lastActivityAt: Date.now(),
+            hasUnseenActivity: true,
+          });
+          delete resetTimers.current[agentId];
+        }, instruction.durationMs);
+      }
+      return true;
+    },
+    [updateAgent],
+  );
+
+  useEffect(() => {
+    agentsRef.current = state.agents;
+
+    let applied = 0;
+    for (const [agentId, pending] of Object.entries(pendingInstructions.current)) {
+      if (!state.agents.some((agent) => agent.agentId === agentId)) continue;
+      if (applyInstruction(pending.eventName, pending.instruction)) {
+        delete pendingInstructions.current[agentId];
+        applied += 1;
+      }
+    }
+
+    if (applied > 0) {
+      setDiagnostics((previous) => ({
+        ...previous,
+        applied: previous.applied + applied,
+        queued: Object.keys(pendingInstructions.current).length,
+      }));
+    }
+  }, [applyInstruction, state.agents]);
+
+  useEffect(() => {
+    const source = new EventSource(EVENT_URL);
 
     source.onopen = () => {
       setDiagnostics((previous) => ({ ...previous, status: "connected" }));
@@ -112,11 +187,25 @@ export function TradingOfficeRealtimeBridge() {
       const phase = instructions[0]?.phase ?? "unmapped";
       let applied = 0;
 
+      for (const instruction of instructions) {
+        if (applyInstruction(event.event, instruction)) {
+          applied += 1;
+          delete pendingInstructions.current[instruction.agentId];
+        } else {
+          pendingInstructions.current[instruction.agentId] = {
+            eventName: event.event,
+            instruction,
+          };
+        }
+      }
+
       setDiagnostics((previous) => ({
         ...previous,
         status: "connected",
         received: previous.received + 1,
         mapped: previous.mapped + (instructions.length > 0 ? 1 : 0),
+        applied: previous.applied + applied,
+        queued: Object.keys(pendingInstructions.current).length,
         lastEvent: event.event,
         lastTargets: targets.length > 0 ? targets.join(",") : "-",
         history:
@@ -132,64 +221,15 @@ export function TradingOfficeRealtimeBridge() {
                 ...previous.history,
               ].slice(0, MAX_HISTORY_ITEMS),
       }));
-
-      if (instructions.length === 0) return;
-
-      const locale = readOfficeLocale();
-      for (const instruction of instructions) {
-        const agentId = instruction.agentId;
-        const existingTimer = resetTimers.current[agentId];
-        if (existingTimer) {
-          clearTimeout(existingTimer);
-          delete resetTimers.current[agentId];
-        }
-
-        const now = Date.now();
-        const speechText = instruction.speech[locale];
-        const wasApplied = updateAgent(agentId, {
-          status: instruction.status,
-          runId:
-            instruction.status === "running"
-              ? `trading-${event.event}-${now}`
-              : null,
-          runStartedAt: instruction.status === "running" ? now : null,
-          streamText: speechText,
-          latestPreview: instruction.label,
-          lastActivityAt: now,
-          hasUnseenActivity: true,
-        });
-        if (wasApplied) applied += 1;
-
-        if (instruction.durationMs !== null && wasApplied) {
-          resetTimers.current[agentId] = setTimeout(() => {
-            updateAgent(agentId, {
-              status: "idle",
-              runId: null,
-              runStartedAt: null,
-              streamText: null,
-              latestPreview: instruction.label,
-              lastActivityAt: Date.now(),
-              hasUnseenActivity: true,
-            });
-            delete resetTimers.current[agentId];
-          }, instruction.durationMs);
-        }
-      }
-
-      if (applied > 0) {
-        setDiagnostics((previous) => ({
-          ...previous,
-          applied: previous.applied + applied,
-        }));
-      }
     };
 
     return () => {
       source.close();
       for (const timer of Object.values(resetTimers.current)) clearTimeout(timer);
       resetTimers.current = {};
+      pendingInstructions.current = {};
     };
-  }, [dispatch]);
+  }, [applyInstruction]);
 
   return (
     <div className="fixed left-2 top-2 z-[100] text-[10px] text-cyan-100">
@@ -218,7 +258,7 @@ export function TradingOfficeRealtimeBridge() {
         >
           <div>สถานะ SSE {STATUS_LABELS[diagnostics.status]}</div>
           <div>
-            รับ {diagnostics.received} · จับคู่ {diagnostics.mapped} · ใช้งาน {diagnostics.applied}
+            รับ {diagnostics.received} · จับคู่ {diagnostics.mapped} · ใช้งาน {diagnostics.applied} · รอ {diagnostics.queued}
           </div>
           <div>เหตุการณ์ล่าสุด {diagnostics.lastEvent}</div>
           <div>เป้าหมาย {diagnostics.lastTargets}</div>
