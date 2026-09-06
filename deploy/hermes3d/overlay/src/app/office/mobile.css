@@ -37,9 +37,12 @@
     max-width: 100vw;
   }
 
-  /* Preserve a clean touch area around the 3D viewport. */
+  /* Give Hermes3D exclusive control of drag/pinch gestures inside the 3D viewport. */
   canvas {
-    touch-action: manipulation;
+    touch-action: none;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 }
 
