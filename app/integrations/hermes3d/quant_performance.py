@@ -334,12 +334,56 @@ class QuantPerformanceProjection:
         }
 
     @classmethod
+    def by_strategy_and_market_regime(
+        cls,
+        positions: list[dict[str, Any]],
+    ) -> dict[str, dict[str, dict[str, Any]]]:
+        strategy_ids = sorted(
+            {
+                str(item.get("strategy_id", "baseline")).lower()
+                for item in positions
+                if item.get("strategy_id") or item.get("order_id")
+            }
+        )
+        result: dict[str, dict[str, dict[str, Any]]] = {}
+        for strategy_id in strategy_ids:
+            strategy_positions = [
+                item
+                for item in positions
+                if str(item.get("strategy_id", "baseline")).lower() == strategy_id
+            ]
+            regimes = sorted(
+                {
+                    str(item.get("entry_market_regime"))
+                    for item in strategy_positions
+                    if item.get("entry_market_regime")
+                }
+            )
+            result[strategy_id] = {
+                regime: cls.summarize(
+                    [
+                        item
+                        for item in strategy_positions
+                        if str(item.get("entry_market_regime")) == regime
+                    ]
+                )
+                for regime in regimes
+            }
+        return result
+
+    @classmethod
     def data_availability(cls, positions: list[dict[str, Any]]) -> dict[str, Any]:
         reconciled = cls._reconciled_closed(positions)
         total = len(reconciled)
         initial_stop_count = sum(
             cls._float(item.get("initial_stop_loss")) is not None
             and item.get("initial_stop_loss_source") == "entry_snapshot"
+            for item in reconciled
+        )
+        initial_risk_count = sum(
+            cls._float(item.get("initial_risk_price_distance")) is not None
+            and cls._float(item.get("initial_risk_usdt")) is not None
+            and item.get("initial_risk_source") == "entry_snapshot"
             for item in reconciled
         )
         path_count = sum(cls._path_excursion(item) is not None for item in reconciled)
@@ -352,6 +396,7 @@ class QuantPerformanceProjection:
             "advanced_metrics_basis": "exchange_reconciled_closed_trades_only",
             "trade_path_basis": "runner_live_price_samples",
             "initial_stop_loss_coverage_pct": coverage(initial_stop_count),
+            "initial_risk_snapshot_coverage_pct": coverage(initial_risk_count),
             "mae_mfe_available": path_count > 0,
             "mae_mfe_coverage_pct": coverage(path_count),
             "mae_mfe_reason": None

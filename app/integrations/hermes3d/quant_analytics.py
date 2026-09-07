@@ -34,6 +34,9 @@ class Hermes3DQuantAnalyticsProjection:
             "portfolio": QuantPerformanceProjection.summarize(positions),
             "strategies": QuantPerformanceProjection.by_strategy(positions),
             "market_regimes": QuantPerformanceProjection.by_market_regime(positions),
+            "strategy_market_regimes": QuantPerformanceProjection.by_strategy_and_market_regime(
+                positions
+            ),
             "data_quality": QuantPerformanceProjection.data_availability(positions),
         }
         if self.validation_position_store is not None:
