@@ -59,7 +59,7 @@ def test_sidecar_starts_at_eof_and_only_publishes_new_signal(tmp_path: Path) -> 
     assert result["lines"] == 1
     _, records = journal.read_from(0)
     names = [record["event"] for record in records]
-    assert names == ["BUY_READY", "RISK_PASS", "STATE_CHANGED"]
+    assert names == ["AGENT_ACTIVITY", "BUY_READY", "RISK_PASS", "STATE_CHANGED"]
 
 
 def test_sidecar_maps_position_close_and_halt(tmp_path: Path) -> None:
@@ -94,6 +94,7 @@ def test_sidecar_maps_position_close_and_halt(tmp_path: Path) -> None:
     sidecar.poll_once()
     _, records = sidecar.journal.read_from(0)
     names = [record["event"] for record in records]
+    assert "AGENT_ACTIVITY" in names
     assert "SL_HIT" in names
     assert "CIRCUIT_BREAKER" in names
 
