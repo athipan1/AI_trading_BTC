@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 from app.integrations.hermes3d.quant_performance import QuantPerformanceProjection
+from app.integrations.hermes3d.trade_efficiency import TradeEfficiencyProjection
 from app.monitoring.position_store import PositionStore
 
 
@@ -37,6 +38,14 @@ class Hermes3DQuantAnalyticsProjection:
             "strategy_market_regimes": QuantPerformanceProjection.by_strategy_and_market_regime(
                 positions
             ),
+            "trade_efficiency": {
+                "portfolio": TradeEfficiencyProjection.summarize(positions),
+                "strategies": TradeEfficiencyProjection.by_strategy(positions),
+                "market_regimes": TradeEfficiencyProjection.by_market_regime(positions),
+                "strategy_market_regimes": (
+                    TradeEfficiencyProjection.by_strategy_and_market_regime(positions)
+                ),
+            },
             "data_quality": QuantPerformanceProjection.data_availability(positions),
         }
         if self.validation_position_store is not None:
@@ -45,6 +54,7 @@ class Hermes3DQuantAnalyticsProjection:
                 "isolated": True,
                 "portfolio": QuantPerformanceProjection.summarize(validation_positions),
                 "market_regimes": QuantPerformanceProjection.by_market_regime(validation_positions),
+                "trade_efficiency": TradeEfficiencyProjection.summarize(validation_positions),
                 "data_quality": QuantPerformanceProjection.data_availability(validation_positions),
             }
         payload["quant_performance"] = quant
