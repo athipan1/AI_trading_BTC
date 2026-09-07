@@ -65,16 +65,31 @@ class TradePathObserver:
                 continue
             entry_price = self._float(item.get("entry_price"))
             stop_loss = self._float(item.get("stop_loss"))
+            quantity = self._float(item.get("quantity"))
             if item.get("initial_stop_loss") is None and stop_loss is not None:
                 item["initial_stop_loss"] = stop_loss
                 item["initial_stop_loss_source"] = "entry_snapshot"
+            if (
+                item.get("initial_risk_price_distance") is None
+                and entry_price is not None
+                and stop_loss is not None
+            ):
+                risk_distance = abs(entry_price - stop_loss)
+                if risk_distance > 0:
+                    item["initial_risk_price_distance"] = risk_distance
+                    if quantity is not None and quantity > 0:
+                        item["initial_risk_usdt"] = risk_distance * quantity
+                    item["initial_risk_source"] = "entry_snapshot"
             regime = signal.get("regime")
             if item.get("entry_market_regime") is None and regime:
                 item["entry_market_regime"] = str(regime)
-            item["entry_context_captured_at"] = self._now()
+            if item.get("entry_context_captured_at") is None:
+                item["entry_context_captured_at"] = self._now()
             if entry_price is not None:
-                item["trade_path_highest_price"] = entry_price
-                item["trade_path_lowest_price"] = entry_price
+                if item.get("trade_path_highest_price") is None:
+                    item["trade_path_highest_price"] = entry_price
+                if item.get("trade_path_lowest_price") is None:
+                    item["trade_path_lowest_price"] = entry_price
             item["trade_path_observation_count"] = int(
                 item.get("trade_path_observation_count") or 0
             )
