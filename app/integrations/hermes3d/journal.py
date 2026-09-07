@@ -54,12 +54,60 @@ class Hermes3DEventJournal:
             os.close(fd)
         return record
 
+    def publish_activity(
+        self,
+        *,
+        agent_id: str,
+        activity: str,
+        state: str,
+        message_key: str,
+        speech_th: str,
+        speech_en: str,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Publish a UI-neutral agent activity event for Hermes3D consumers.
+
+        ``message_key`` is the stable localization contract. The localized speech
+        fields are intentionally short fallbacks for clients that do not ship the
+        same translation catalog yet. Trading and exchange behavior is untouched.
+        """
+        normalized_state = state.strip().upper()
+        if normalized_state not in {"IDLE", "WORKING", "SUCCESS", "WARNING", "ERROR"}:
+            raise ValueError(f"unsupported Hermes3D activity state: {state}")
+        payload: dict[str, Any] = {
+            "activity": activity.strip(),
+            "state": normalized_state,
+            "message_key": message_key.strip(),
+            "speech": {"th": speech_th.strip(), "en": speech_en.strip()},
+        }
+        if context:
+            payload.update(context)
+        return self.publish(event="AGENT_ACTIVITY", agent_id=agent_id, payload=payload)
+
     def publish_result(self, result: dict[str, Any]) -> list[dict[str, Any]]:
         published: list[dict[str, Any]] = []
         strategy_id = str(result.get("strategy_id") or "unknown")
         signal = result.get("signal") if isinstance(result.get("signal"), dict) else {}
         action = str(signal.get("action") or "")
         event_name = str(result.get("event") or "")
+
+        published.append(
+            self.publish_activity(
+                agent_id=strategy_id,
+                activity="strategy_evaluated",
+                state="SUCCESS",
+                message_key="agent.strategy.evaluated",
+                speech_th="ตรวจสัญญาณแล้ว",
+                speech_en="Signal check complete",
+                context={
+                    "strategy_id": strategy_id,
+                    "symbol": result.get("symbol"),
+                    "timeframe": result.get("timeframe"),
+                    "candle_ms": result.get("candle_ms"),
+                    "signal_action": action or "HOLD",
+                },
+            )
+        )
 
         if action in {"BUY", "SHORT"}:
             published.append(
