@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from app.auto_trading.state_store import AutoTradeStateStore
 from app.integrations.hermes3d.events import Hermes3DEventStream
 from app.integrations.hermes3d.journal import Hermes3DEventJournal
@@ -88,11 +90,41 @@ def test_event_journal_maps_trade_results(tmp_path: Path) -> None:
     published = journal.publish_result(result)
     names = [event["event"] for event in published]
 
-    assert names == ["BUY_READY", "RISK_PASS", "ORDER_OPEN", "STATE_CHANGED"]
+    assert names == [
+        "AGENT_ACTIVITY",
+        "BUY_READY",
+        "RISK_PASS",
+        "ORDER_OPEN",
+        "STATE_CHANGED",
+    ]
+    activity = published[0]
+    assert activity["agent_id"] == "baseline"
+    assert activity["payload"]["state"] == "SUCCESS"
+    assert activity["payload"]["activity"] == "strategy_evaluated"
+    assert activity["payload"]["message_key"] == "agent.strategy.evaluated"
+    assert activity["payload"]["speech"] == {
+        "th": "ตรวจสัญญาณแล้ว",
+        "en": "Signal check complete",
+    }
+
     offset, records = journal.read_from(0)
     assert offset == journal.size()
     assert [event["event"] for event in records] == names
     assert [event["event"] for event in journal.read_recent()] == names
+
+
+def test_event_journal_activity_contract_rejects_unknown_state(tmp_path: Path) -> None:
+    journal = Hermes3DEventJournal(tmp_path / "events.jsonl")
+
+    with pytest.raises(ValueError, match="unsupported Hermes3D activity state"):
+        journal.publish_activity(
+            agent_id="baseline",
+            activity="strategy_scan",
+            state="DANCING",
+            message_key="agent.strategy.scan",
+            speech_th="กำลังตรวจสัญญาณ",
+            speech_en="Checking signal",
+        )
 
 
 def test_event_journal_maps_tp_and_circuit_breaker(tmp_path: Path) -> None:
@@ -116,5 +148,6 @@ def test_event_journal_maps_tp_and_circuit_breaker(tmp_path: Path) -> None:
     _, records = journal.read_from(0)
     names = [event["event"] for event in records]
 
+    assert "AGENT_ACTIVITY" in names
     assert "TP_HIT" in names
     assert "CIRCUIT_BREAKER" in names
