@@ -11,6 +11,7 @@ OFFICE_PAGE = ROOT / "deploy/hermes3d/overlay/src/app/office/page.tsx"
 def test_phase17_animation_mapping_covers_trading_events() -> None:
     source = MAPPING.read_text(encoding="utf-8")
     for event_name in (
+        "AGENT_ACTIVITY",
         "BUY_READY",
         "SHORT_READY",
         "RISK_PASS",
@@ -20,6 +21,14 @@ def test_phase17_animation_mapping_covers_trading_events() -> None:
         "CIRCUIT_BREAKER",
     ):
         assert event_name in source
+
+
+def test_phase421_activity_mapping_uses_localized_speech_contract() -> None:
+    source = MAPPING.read_text(encoding="utf-8")
+    assert "activitySpeech" in source
+    assert 'event.payload?.speech' in source
+    assert 'phase: "activity"' in source
+    assert 'state === "ERROR" ? "error" : "running"' in source
 
 
 def test_phase17_bridge_is_read_only_event_source() -> None:
