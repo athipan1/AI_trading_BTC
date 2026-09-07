@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI, HTTPException
 
 from app.config import get_settings
+from app.execution.binance_testnet import BinanceTestnetBroker
 from app.execution.paper import PaperBroker
 from app.integrations.hermes3d.analytics import Hermes3DTradingAnalyticsProjection
 from app.integrations.hermes3d.events import Hermes3DEventStream
@@ -12,10 +15,16 @@ from app.integrations.hermes3d.quant_analytics import Hermes3DQuantAnalyticsProj
 from app.integrations.hermes3d.router import build_hermes3d_router
 from app.integrations.hermes3d.simulator import Hermes3DValidationEventSimulator
 from app.market_data.service import MarketDataError, MarketDataService
+from app.monitoring.binance_fill_reconciler import BinanceSpotFillSource, PositionFillReconciler
 from app.monitoring.position_store import PositionStore
+from app.monitoring.trade_path_observer import TradePathObserver
 from app.risk.engine import RiskEngine
 from app.strategies.baseline import BaselineStrategy
 from app.trading_cycle import TradingCycle
+from app.validation.phase41_trade import (
+    Phase41ValidationTradeService,
+    build_phase41_validation_router,
+)
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name, version=settings.app_version)
@@ -33,6 +42,7 @@ cycle = TradingCycle(market_data, strategy, risk, broker)
 hermes3d_journal = Hermes3DEventJournal(settings.hermes3d_event_journal)
 hermes3d_spot_positions = PositionStore(settings.hermes3d_spot_position_store)
 hermes3d_futures_positions = PositionStore(settings.hermes3d_futures_position_store)
+phase41_validation_positions = PositionStore(settings.phase41_validation_position_store)
 hermes3d_auto_state_paths = {
     "baseline": settings.hermes3d_baseline_state_store,
     "triple_ema": settings.hermes3d_triple_ema_state_store,
@@ -56,6 +66,7 @@ hermes3d_analytics = Hermes3DQuantAnalyticsProjection(
     base_projection=hermes3d_base_analytics,
     spot_position_store=hermes3d_spot_positions,
     futures_position_store=hermes3d_futures_positions,
+    validation_position_store=phase41_validation_positions,
 )
 hermes3d_events = Hermes3DEventStream(
     state_reader=hermes3d_projection,
@@ -73,6 +84,37 @@ app.include_router(
         analytics_reader=hermes3d_analytics,
         validation_simulator=hermes3d_validation_simulator,
         validation_simulator_enabled=settings.hermes3d_validation_simulator_enabled,
+    )
+)
+
+
+def _phase41_validation_service() -> Phase41ValidationTradeService:
+    broker = BinanceTestnetBroker(
+        api_key=os.environ.get("BINANCE_TESTNET_API_KEY", ""),
+        api_secret=os.environ.get("BINANCE_TESTNET_API_SECRET", ""),
+        max_order_notional_usdt=25.0,
+        max_exit_notional_usdt=100.0,
+    )
+    observer = TradePathObserver(phase41_validation_positions)
+    reconciler = PositionFillReconciler(
+        position_store=phase41_validation_positions,
+        fill_source=BinanceSpotFillSource(broker),
+    )
+    return Phase41ValidationTradeService(
+        broker=broker,
+        position_store=phase41_validation_positions,
+        trade_path_observer=observer,
+        reconciler=reconciler,
+        symbol=settings.symbol,
+        timeframe=settings.timeframe,
+        notional_usdt=settings.phase41_validation_notional_usdt,
+    )
+
+
+app.include_router(
+    build_phase41_validation_router(
+        service_factory=_phase41_validation_service,
+        enabled=settings.phase41_validation_trade_enabled,
     )
 )
 
