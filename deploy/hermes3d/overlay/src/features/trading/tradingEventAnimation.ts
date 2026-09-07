@@ -6,6 +6,7 @@ export type TradingRuntimeEvent = {
 };
 
 export type TradingAgentPhase =
+  | "activity"
   | "signal_ready"
   | "risk_approved"
   | "order_open"
@@ -30,8 +31,27 @@ const strategyFromPayload = (event: TradingRuntimeEvent): string | null => {
   return typeof strategyId === "string" && strategyId.trim() ? strategyId.trim() : null;
 };
 
+const activitySpeech = (event: TradingRuntimeEvent): { th: string; en: string } => {
+  const speech = event.payload?.speech;
+  if (speech && typeof speech === "object") {
+    const record = speech as Record<string, unknown>;
+    const th = typeof record.th === "string" ? record.th.trim() : "";
+    const en = typeof record.en === "string" ? record.en.trim() : "";
+    if (th || en) {
+      return {
+        th: th || en || "กำลังทำงาน",
+        en: en || th || "Working",
+      };
+    }
+  }
+  return { th: "กำลังทำงาน", en: "Working" };
+};
+
 const eventLabel = (event: TradingRuntimeEvent): string => {
   const payload = event.payload ?? {};
+  if (event.event === "AGENT_ACTIVITY") {
+    return `${String(payload.state ?? "WORKING")} · ${String(payload.activity ?? event.agent_id)}`;
+  }
   if (event.event === "ORDER_OPEN") {
     return `ORDER_OPEN · ${String(payload.order_id ?? "-")}`;
   }
@@ -64,6 +84,18 @@ export const mapTradingEventToAnimations = (
   const strategyId = strategyFromPayload(event);
 
   switch (event.event) {
+    case "AGENT_ACTIVITY": {
+      const state = String(event.payload?.state ?? "WORKING").toUpperCase();
+      return [
+        instruction(event, {
+          agentId: event.agent_id,
+          status: state === "ERROR" ? "error" : "running",
+          durationMs: state === "ERROR" ? 5_000 : 3_000,
+          phase: "activity",
+          speech: activitySpeech(event),
+        }),
+      ];
+    }
     case "BUY_READY":
       return [
         instruction(event, {
