@@ -59,7 +59,20 @@ def test_sidecar_starts_at_eof_and_only_publishes_new_signal(tmp_path: Path) -> 
     assert result["lines"] == 1
     _, records = journal.read_from(0)
     names = [record["event"] for record in records]
-    assert names == ["AGENT_ACTIVITY", "BUY_READY", "RISK_PASS", "STATE_CHANGED"]
+    assert names == [
+        "AGENT_ACTIVITY",
+        "BUY_READY",
+        "AGENT_ACTIVITY",
+        "AGENT_ACTIVITY",
+        "RISK_PASS",
+        "STATE_CHANGED",
+    ]
+    risk_states = [
+        record["payload"]["state"]
+        for record in records
+        if record["event"] == "AGENT_ACTIVITY" and record["agent_id"] == "risk-manager"
+    ]
+    assert risk_states == ["WORKING", "SUCCESS"]
 
 
 def test_sidecar_maps_position_close_and_halt(tmp_path: Path) -> None:
