@@ -101,7 +101,15 @@ def test_event_journal_maps_trade_results(tmp_path: Path) -> None:
         "STATE_CHANGED",
     ]
     activities = [event for event in published if event["event"] == "AGENT_ACTIVITY"]
-    assert [(event["agent_id"], event["payload"]["activity"], event["payload"]["state"]) for event in activities] == [
+    activity_states = [
+        (
+            event["agent_id"],
+            event["payload"]["activity"],
+            event["payload"]["state"],
+        )
+        for event in activities
+    ]
+    assert activity_states == [
         ("baseline", "strategy_evaluated", "SUCCESS"),
         ("risk-manager", "risk_check", "WORKING"),
         ("risk-manager", "risk_approved", "SUCCESS"),
@@ -148,9 +156,15 @@ def test_event_journal_maps_risk_blocked_to_warning(tmp_path: Path) -> None:
     )
 
     risk_activities = [
-        event for event in published if event["event"] == "AGENT_ACTIVITY" and event["agent_id"] == "risk-manager"
+        event
+        for event in published
+        if event["event"] == "AGENT_ACTIVITY"
+        and event["agent_id"] == "risk-manager"
     ]
-    assert [event["payload"]["state"] for event in risk_activities] == ["WORKING", "WARNING"]
+    assert [event["payload"]["state"] for event in risk_activities] == [
+        "WORKING",
+        "WARNING",
+    ]
     assert risk_activities[-1]["payload"]["activity"] == "risk_blocked"
     assert risk_activities[-1]["payload"]["speech"]["th"] == "Risk ไม่ผ่าน"
 
@@ -180,5 +194,7 @@ def test_event_journal_maps_tp_and_circuit_breaker(tmp_path: Path) -> None:
     assert "CIRCUIT_BREAKER" in names
     activities = [event for event in records if event["event"] == "AGENT_ACTIVITY"]
     assert any(event["payload"]["activity"] == "position_closed" for event in activities)
-    halt = [event for event in activities if event["payload"]["activity"] == "circuit_breaker"][-1]
+    halt = [
+        event for event in activities if event["payload"]["activity"] == "circuit_breaker"
+    ][-1]
     assert halt["payload"]["state"] == "ERROR"
