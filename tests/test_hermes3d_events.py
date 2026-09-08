@@ -93,19 +93,33 @@ def test_event_journal_maps_trade_results(tmp_path: Path) -> None:
     assert names == [
         "AGENT_ACTIVITY",
         "BUY_READY",
+        "AGENT_ACTIVITY",
+        "AGENT_ACTIVITY",
         "RISK_PASS",
+        "AGENT_ACTIVITY",
         "ORDER_OPEN",
         "STATE_CHANGED",
     ]
-    activity = published[0]
-    assert activity["agent_id"] == "baseline"
-    assert activity["payload"]["state"] == "SUCCESS"
-    assert activity["payload"]["activity"] == "strategy_evaluated"
-    assert activity["payload"]["message_key"] == "agent.strategy.evaluated"
-    assert activity["payload"]["speech"] == {
-        "th": "ตรวจสัญญาณแล้ว",
-        "en": "Signal check complete",
+    activities = [event for event in published if event["event"] == "AGENT_ACTIVITY"]
+    activity_states = [
+        (
+            event["agent_id"],
+            event["payload"]["activity"],
+            event["payload"]["state"],
+        )
+        for event in activities
+    ]
+    assert activity_states == [
+        ("baseline", "strategy_evaluated", "SUCCESS"),
+        ("risk-manager", "risk_check", "WORKING"),
+        ("risk-manager", "risk_approved", "SUCCESS"),
+        ("positions", "order_filled", "SUCCESS"),
+    ]
+    assert activities[1]["payload"]["speech"] == {
+        "th": "กำลังตรวจ Risk",
+        "en": "Checking risk",
     }
+    assert activities[-1]["payload"]["message_key"] == "agent.execution.filled"
 
     offset, records = journal.read_from(0)
     assert offset == journal.size()
@@ -125,6 +139,34 @@ def test_event_journal_activity_contract_rejects_unknown_state(tmp_path: Path) -
             speech_th="กำลังตรวจสัญญาณ",
             speech_en="Checking signal",
         )
+
+
+def test_event_journal_maps_risk_blocked_to_warning(tmp_path: Path) -> None:
+    journal = Hermes3DEventJournal(tmp_path / "events.jsonl")
+    published = journal.publish_result(
+        {
+            "event": "RISK_BLOCKED",
+            "strategy_id": "baseline",
+            "symbol": "BTC/USDT",
+            "timeframe": "1h",
+            "signal": {"action": "BUY"},
+            "risk": {"approved": False},
+            "reason": "risk limit",
+        }
+    )
+
+    risk_activities = [
+        event
+        for event in published
+        if event["event"] == "AGENT_ACTIVITY"
+        and event["agent_id"] == "risk-manager"
+    ]
+    assert [event["payload"]["state"] for event in risk_activities] == [
+        "WORKING",
+        "WARNING",
+    ]
+    assert risk_activities[-1]["payload"]["activity"] == "risk_blocked"
+    assert risk_activities[-1]["payload"]["speech"]["th"] == "Risk ไม่ผ่าน"
 
 
 def test_event_journal_maps_tp_and_circuit_breaker(tmp_path: Path) -> None:
@@ -148,6 +190,11 @@ def test_event_journal_maps_tp_and_circuit_breaker(tmp_path: Path) -> None:
     _, records = journal.read_from(0)
     names = [event["event"] for event in records]
 
-    assert "AGENT_ACTIVITY" in names
     assert "TP_HIT" in names
     assert "CIRCUIT_BREAKER" in names
+    activities = [event for event in records if event["event"] == "AGENT_ACTIVITY"]
+    assert any(event["payload"]["activity"] == "position_closed" for event in activities)
+    halt = [
+        event for event in activities if event["payload"]["activity"] == "circuit_breaker"
+    ][-1]
+    assert halt["payload"]["state"] == "ERROR"

@@ -5,6 +5,8 @@ export type TradingRuntimeEvent = {
   payload?: Record<string, unknown>;
 };
 
+export type TradingActivityState = "IDLE" | "WORKING" | "SUCCESS" | "WARNING" | "ERROR";
+
 export type TradingAgentPhase =
   | "activity"
   | "signal_ready"
@@ -19,6 +21,7 @@ export type TradingAnimationInstruction = {
   status: "idle" | "running" | "error";
   durationMs: number | null;
   phase: TradingAgentPhase;
+  activityState?: TradingActivityState;
   label: string;
   speech: {
     th: string;
@@ -45,6 +48,14 @@ const activitySpeech = (event: TradingRuntimeEvent): { th: string; en: string } 
     }
   }
   return { th: "กำลังทำงาน", en: "Working" };
+};
+
+const normalizeActivityState = (value: unknown): TradingActivityState => {
+  const state = String(value ?? "WORKING").toUpperCase();
+  if (state === "IDLE" || state === "SUCCESS" || state === "WARNING" || state === "ERROR") {
+    return state;
+  }
+  return "WORKING";
 };
 
 const eventLabel = (event: TradingRuntimeEvent): string => {
@@ -85,13 +96,14 @@ export const mapTradingEventToAnimations = (
 
   switch (event.event) {
     case "AGENT_ACTIVITY": {
-      const state = String(event.payload?.state ?? "WORKING").toUpperCase();
+      const state = normalizeActivityState(event.payload?.state);
       return [
         instruction(event, {
           agentId: event.agent_id,
           status: state === "ERROR" ? "error" : "running",
           durationMs: state === "ERROR" ? 5_000 : 3_000,
           phase: "activity",
+          activityState: state,
           speech: activitySpeech(event),
         }),
       ];
