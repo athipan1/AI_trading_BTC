@@ -57,6 +57,7 @@ class Hermes3DJournalStateProjection:
                 "websocket",
             ],
             "event_types": [
+                "AGENT_ACTIVITY",
                 "BUY_READY",
                 "SHORT_READY",
                 "RISK_PASS",
@@ -107,6 +108,33 @@ class Hermes3DJournalStateProjection:
             if strategy_id:
                 latest[strategy_id] = record
         return latest
+
+    @staticmethod
+    def _latest_activity_by_agent(
+        records: list[dict[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        latest: dict[str, dict[str, Any]] = {}
+        for record in records:
+            if str(record.get("event")) != "AGENT_ACTIVITY":
+                continue
+            agent_id = str(record.get("agent_id") or "").strip()
+            if agent_id:
+                latest[agent_id] = record
+        return latest
+
+    @staticmethod
+    def _activity_from_record(record: dict[str, Any]) -> dict[str, Any]:
+        payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+        speech = payload.get("speech") if isinstance(payload.get("speech"), dict) else {}
+        context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
+        return {
+            "state": str(payload.get("state") or "WORKING").upper(),
+            "activity": str(payload.get("activity") or "working"),
+            "message_key": payload.get("message_key"),
+            "speech": {"th": speech.get("th"), "en": speech.get("en")},
+            "context": context,
+            "generated_at": record.get("generated_at"),
+        }
 
     def _automation_states(self) -> dict[str, dict[str, Any]]:
         return {
@@ -162,6 +190,7 @@ class Hermes3DJournalStateProjection:
         records = self._records()
         ready_by_strategy = self._latest_by_strategy(records, {"BUY_READY", "SHORT_READY"})
         risk_by_strategy = self._latest_by_strategy(records, {"RISK_PASS"})
+        activity_by_agent = self._latest_activity_by_agent(records)
         automation_states = self._automation_states()
 
         strategy_states: list[dict[str, Any]] = []
@@ -194,7 +223,11 @@ class Hermes3DJournalStateProjection:
         approved_entries = sum(bool(item["risk"].get("approved")) for item in entry_signals)
 
         latest_strategy_record = next(
-            (record for record in reversed(records) if record.get("event") in {"BUY_READY", "SHORT_READY"}),
+            (
+                record
+                for record in reversed(records)
+                if record.get("event") in {"BUY_READY", "SHORT_READY"}
+            ),
             None,
         )
         latest_payload = (
@@ -203,7 +236,9 @@ class Hermes3DJournalStateProjection:
             and isinstance(latest_strategy_record.get("payload"), dict)
             else {}
         )
-        latest_signal = latest_payload.get("signal") if isinstance(latest_payload.get("signal"), dict) else {}
+        latest_signal = (
+            latest_payload.get("signal") if isinstance(latest_payload.get("signal"), dict) else {}
+        )
         latest_diagnostic = (
             latest_payload.get("diagnostic")
             if isinstance(latest_payload.get("diagnostic"), dict)
@@ -243,6 +278,13 @@ class Hermes3DJournalStateProjection:
                 "risk_approved": bool(item["risk"].get("approved")),
                 "detail": item["risk"].get("reason") or "Waiting for trading-worker event",
             }
+
+        for agent_id, activity_record in activity_by_agent.items():
+            if agent_id not in agent_statuses:
+                continue
+            activity = self._activity_from_record(activity_record)
+            agent_statuses[agent_id]["operational_status"] = activity["state"]
+            agent_statuses[agent_id]["activity"] = activity
 
         return {
             "generated_at": self._now(),
