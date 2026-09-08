@@ -79,6 +79,44 @@ class Hermes3DEventJournal:
             payload.update(context)
         return self.publish(event="AGENT_ACTIVITY", agent_id=agent_id, payload=payload)
 
+    def _publish_strategy_activity(
+        self,
+        *,
+        published: list[dict[str, Any]],
+        strategy_id: str,
+        action: str,
+        result: dict[str, Any],
+    ) -> None:
+        context = {
+            "strategy_id": strategy_id,
+            "symbol": result.get("symbol"),
+            "timeframe": result.get("timeframe"),
+            "candle_ms": result.get("candle_ms"),
+            "signal_action": action or "HOLD",
+        }
+        published.append(
+            self.publish_activity(
+                agent_id=strategy_id,
+                activity="strategy_check",
+                state="WORKING",
+                message_key="agent.strategy.checking",
+                speech_th="กำลังตรวจสัญญาณ",
+                speech_en="Checking signal",
+                context=context,
+            )
+        )
+        published.append(
+            self.publish_activity(
+                agent_id=strategy_id,
+                activity="strategy_evaluated",
+                state="SUCCESS",
+                message_key="agent.strategy.evaluated",
+                speech_th="ตรวจสัญญาณแล้ว",
+                speech_en="Signal check complete",
+                context=context,
+            )
+        )
+
     def _publish_risk_activity(
         self,
         *,
@@ -131,6 +169,42 @@ class Hermes3DEventJournal:
                 )
             )
 
+    def _publish_position_activity(
+        self,
+        *,
+        published: list[dict[str, Any]],
+        activity: str,
+        terminal_state: str,
+        terminal_message_key: str,
+        working_speech_th: str,
+        working_speech_en: str,
+        terminal_speech_th: str,
+        terminal_speech_en: str,
+        context: dict[str, Any],
+    ) -> None:
+        published.append(
+            self.publish_activity(
+                agent_id="positions",
+                activity=f"{activity}_sync",
+                state="WORKING",
+                message_key="agent.position.syncing",
+                speech_th=working_speech_th,
+                speech_en=working_speech_en,
+                context=context,
+            )
+        )
+        published.append(
+            self.publish_activity(
+                agent_id="positions",
+                activity=activity,
+                state=terminal_state,
+                message_key=terminal_message_key,
+                speech_th=terminal_speech_th,
+                speech_en=terminal_speech_en,
+                context=context,
+            )
+        )
+
     def publish_result(self, result: dict[str, Any]) -> list[dict[str, Any]]:
         published: list[dict[str, Any]] = []
         strategy_id = str(result.get("strategy_id") or "unknown")
@@ -138,22 +212,11 @@ class Hermes3DEventJournal:
         action = str(signal.get("action") or "")
         event_name = str(result.get("event") or "")
 
-        published.append(
-            self.publish_activity(
-                agent_id=strategy_id,
-                activity="strategy_evaluated",
-                state="SUCCESS",
-                message_key="agent.strategy.evaluated",
-                speech_th="ตรวจสัญญาณแล้ว",
-                speech_en="Signal check complete",
-                context={
-                    "strategy_id": strategy_id,
-                    "symbol": result.get("symbol"),
-                    "timeframe": result.get("timeframe"),
-                    "candle_ms": result.get("candle_ms"),
-                    "signal_action": action or "HOLD",
-                },
-            )
+        self._publish_strategy_activity(
+            published=published,
+            strategy_id=strategy_id,
+            action=action,
+            result=result,
         )
 
         if action in {"BUY", "SHORT"}:
@@ -198,20 +261,21 @@ class Hermes3DEventJournal:
 
         if event_name in {"BUY_FILLED", "SHORT_FILLED"}:
             position = result.get("position") if isinstance(result.get("position"), dict) else {}
-            published.append(
-                self.publish_activity(
-                    agent_id="positions",
-                    activity="order_filled",
-                    state="SUCCESS",
-                    message_key="agent.execution.filled",
-                    speech_th="ออเดอร์ Filled แล้ว",
-                    speech_en="Order filled",
-                    context={
-                        "strategy_id": strategy_id,
-                        "order_id": position.get("order_id"),
-                        "symbol": position.get("symbol", result.get("symbol")),
-                    },
-                )
+            position_context = {
+                "strategy_id": strategy_id,
+                "order_id": position.get("order_id"),
+                "symbol": position.get("symbol", result.get("symbol")),
+            }
+            self._publish_position_activity(
+                published=published,
+                activity="order_filled",
+                terminal_state="SUCCESS",
+                terminal_message_key="agent.execution.filled",
+                working_speech_th="กำลังบันทึก Position",
+                working_speech_en="Updating position",
+                terminal_speech_th="ออเดอร์ Filled แล้ว",
+                terminal_speech_en="Order filled",
+                context=position_context,
             )
             published.append(
                 self.publish(
@@ -237,23 +301,24 @@ class Hermes3DEventJournal:
                 if isinstance(result.get("closed_position"), dict)
                 else {}
             )
-            published.append(
-                self.publish_activity(
-                    agent_id="positions",
-                    activity="position_closed",
-                    state="SUCCESS" if reason == "TP_HIT" else "WARNING",
-                    message_key=(
-                        "agent.position.take_profit" if reason == "TP_HIT" else "agent.position.stop_loss"
-                    ),
-                    speech_th="ปิดกำไรแล้ว" if reason == "TP_HIT" else "ปิดด้วย Stop Loss",
-                    speech_en="Profit taken" if reason == "TP_HIT" else "Stopped out",
-                    context={
-                        "strategy_id": strategy_id,
-                        "reason": reason,
-                        "symbol": closed.get("symbol", result.get("symbol")),
-                        "exit_price": closed.get("exit_price"),
-                    },
-                )
+            close_context = {
+                "strategy_id": strategy_id,
+                "reason": reason,
+                "symbol": closed.get("symbol", result.get("symbol")),
+                "exit_price": closed.get("exit_price"),
+            }
+            self._publish_position_activity(
+                published=published,
+                activity="position_closed",
+                terminal_state="SUCCESS" if reason == "TP_HIT" else "WARNING",
+                terminal_message_key=(
+                    "agent.position.take_profit" if reason == "TP_HIT" else "agent.position.stop_loss"
+                ),
+                working_speech_th="กำลังสรุป Position",
+                working_speech_en="Reconciling position",
+                terminal_speech_th="ปิดกำไรแล้ว" if reason == "TP_HIT" else "ปิดด้วย Stop Loss",
+                terminal_speech_en="Profit taken" if reason == "TP_HIT" else "Stopped out",
+                context=close_context,
             )
             published.append(
                 self.publish(
