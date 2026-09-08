@@ -61,12 +61,19 @@ def test_sidecar_starts_at_eof_and_only_publishes_new_signal(tmp_path: Path) -> 
     names = [record["event"] for record in records]
     assert names == [
         "AGENT_ACTIVITY",
+        "AGENT_ACTIVITY",
         "BUY_READY",
         "AGENT_ACTIVITY",
         "AGENT_ACTIVITY",
         "RISK_PASS",
         "STATE_CHANGED",
     ]
+    strategy_states = [
+        record["payload"]["state"]
+        for record in records
+        if record["event"] == "AGENT_ACTIVITY" and record["agent_id"] == "baseline"
+    ]
+    assert strategy_states == ["WORKING", "SUCCESS"]
     risk_states = [
         record["payload"]["state"]
         for record in records
