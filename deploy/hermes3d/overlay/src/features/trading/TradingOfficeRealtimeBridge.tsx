@@ -12,6 +12,7 @@ import {
 const EVENT_URL = "/api/trading-runtime?resource=events";
 const OFFICE_LOCALE_STORAGE_KEY = "hermes3d-office-locale";
 const MAX_HISTORY_ITEMS = 5;
+const MIN_WORKING_VISIBLE_MS = 1_200;
 
 type BridgeStatus = "connecting" | "connected" | "error";
 type OfficeLocale = "th" | "en";
@@ -71,6 +72,8 @@ const formatEventTime = (generatedAt?: string): string => {
 export function TradingOfficeRealtimeBridge() {
   const { state, dispatch } = useAgentStore();
   const resetTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const deferredTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const workingVisibleUntil = useRef<Record<string, number>>({});
   const pendingInstructions = useRef<Record<string, PendingInstruction>>({});
   const agentsRef = useRef(state.agents);
   const [diagnostics, setDiagnostics] = useState<BridgeDiagnostics>(initialDiagnostics);
@@ -101,13 +104,41 @@ export function TradingOfficeRealtimeBridge() {
       const agentId = instruction.agentId;
       if (!agentsRef.current.some((agent) => agent.agentId === agentId)) return false;
 
+      const now = Date.now();
+      const visibleUntil = workingVisibleUntil.current[agentId] ?? 0;
+      if (
+        instruction.activityState &&
+        instruction.activityState !== "WORKING" &&
+        now < visibleUntil
+      ) {
+        const existingDeferred = deferredTimers.current[agentId];
+        if (existingDeferred) clearTimeout(existingDeferred);
+        deferredTimers.current[agentId] = setTimeout(() => {
+          delete deferredTimers.current[agentId];
+          workingVisibleUntil.current[agentId] = 0;
+          applyInstruction(eventName, instruction);
+        }, Math.max(0, visibleUntil - now));
+        return true;
+      }
+
+      const existingDeferred = deferredTimers.current[agentId];
+      if (existingDeferred) {
+        clearTimeout(existingDeferred);
+        delete deferredTimers.current[agentId];
+      }
+
       const existingTimer = resetTimers.current[agentId];
       if (existingTimer) {
         clearTimeout(existingTimer);
         delete resetTimers.current[agentId];
       }
 
-      const now = Date.now();
+      if (instruction.activityState === "WORKING") {
+        workingVisibleUntil.current[agentId] = now + MIN_WORKING_VISIBLE_MS;
+      } else if (instruction.activityState) {
+        workingVisibleUntil.current[agentId] = 0;
+      }
+
       const speechText = instruction.speech[readOfficeLocale()];
       const wasApplied = updateAgent(agentId, {
         status: instruction.status,
@@ -135,6 +166,7 @@ export function TradingOfficeRealtimeBridge() {
             hasUnseenActivity: true,
           });
           delete resetTimers.current[agentId];
+          workingVisibleUntil.current[agentId] = 0;
         }, instruction.durationMs);
       }
       return true;
@@ -226,7 +258,10 @@ export function TradingOfficeRealtimeBridge() {
     return () => {
       source.close();
       for (const timer of Object.values(resetTimers.current)) clearTimeout(timer);
+      for (const timer of Object.values(deferredTimers.current)) clearTimeout(timer);
       resetTimers.current = {};
+      deferredTimers.current = {};
+      workingVisibleUntil.current = {};
       pendingInstructions.current = {};
     };
   }, [applyInstruction]);
@@ -262,6 +297,7 @@ export function TradingOfficeRealtimeBridge() {
           </div>
           <div>เหตุการณ์ล่าสุด {diagnostics.lastEvent}</div>
           <div>เป้าหมาย {diagnostics.lastTargets}</div>
+          <div className="text-cyan-100/55">Agent Event Console ด้านล่างเป็น Hermes Gateway events แยกจาก Trading SSE</div>
           {diagnostics.history.length > 0 ? (
             <div className="mt-1 border-t border-cyan-300/20 pt-1 text-cyan-100/75">
               {diagnostics.history.map((item, index) => (
