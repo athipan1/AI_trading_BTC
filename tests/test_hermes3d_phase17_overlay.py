@@ -31,6 +31,13 @@ def test_phase421_activity_mapping_uses_localized_speech_contract() -> None:
     assert 'state === "ERROR" ? "error" : "running"' in source
 
 
+def test_phase422_activity_mapping_exposes_lifecycle_state() -> None:
+    source = MAPPING.read_text(encoding="utf-8")
+    assert "TradingActivityState" in source
+    assert "normalizeActivityState" in source
+    assert "activityState: state" in source
+
+
 def test_phase17_bridge_is_read_only_event_source() -> None:
     source = BRIDGE.read_text(encoding="utf-8")
     assert 'new EventSource(EVENT_URL)' in source
@@ -48,6 +55,15 @@ def test_phase17_bridge_queues_events_until_agents_hydrate() -> None:
     assert "applyInstruction(pending.eventName, pending.instruction)" in source
     assert "delete pendingInstructions.current[agentId]" in source
     assert "queued:" in source
+
+
+def test_phase422_bridge_preserves_visible_working_state() -> None:
+    source = BRIDGE.read_text(encoding="utf-8")
+    assert "MIN_WORKING_VISIBLE_MS" in source
+    assert "workingVisibleUntil" in source
+    assert "deferredTimers" in source
+    assert 'instruction.activityState !== "WORKING"' in source
+    assert "Hermes Gateway events แยกจาก Trading SSE" in source
 
 
 def test_phase17_bridge_mounts_inside_office_agent_store() -> None:
