@@ -65,12 +65,7 @@ class Hermes3DEventJournal:
         speech_en: str,
         context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Publish a UI-neutral agent activity event for Hermes3D consumers.
-
-        ``message_key`` is the stable localization contract. The localized speech
-        fields are intentionally short fallbacks for clients that do not ship the
-        same translation catalog yet. Trading and exchange behavior is untouched.
-        """
+        """Publish a UI-neutral agent activity event for Hermes3D consumers."""
         normalized_state = state.strip().upper()
         if normalized_state not in {"IDLE", "WORKING", "SUCCESS", "WARNING", "ERROR"}:
             raise ValueError(f"unsupported Hermes3D activity state: {state}")
@@ -83,6 +78,58 @@ class Hermes3DEventJournal:
         if context:
             payload.update(context)
         return self.publish(event="AGENT_ACTIVITY", agent_id=agent_id, payload=payload)
+
+    def _publish_risk_activity(
+        self,
+        *,
+        published: list[dict[str, Any]],
+        strategy_id: str,
+        action: str,
+        result: dict[str, Any],
+        risk_passed: bool,
+    ) -> None:
+        context = {
+            "strategy_id": strategy_id,
+            "signal_action": action,
+            "symbol": result.get("symbol"),
+            "timeframe": result.get("timeframe"),
+            "candle_ms": result.get("candle_ms"),
+        }
+        published.append(
+            self.publish_activity(
+                agent_id="risk-manager",
+                activity="risk_check",
+                state="WORKING",
+                message_key="agent.risk.checking",
+                speech_th="กำลังตรวจ Risk",
+                speech_en="Checking risk",
+                context=context,
+            )
+        )
+        if risk_passed:
+            published.append(
+                self.publish_activity(
+                    agent_id="risk-manager",
+                    activity="risk_approved",
+                    state="SUCCESS",
+                    message_key="agent.risk.approved",
+                    speech_th="Risk ผ่าน",
+                    speech_en="Risk approved",
+                    context=context,
+                )
+            )
+        else:
+            published.append(
+                self.publish_activity(
+                    agent_id="risk-manager",
+                    activity="risk_blocked",
+                    state="WARNING",
+                    message_key="agent.risk.blocked",
+                    speech_th="Risk ไม่ผ่าน",
+                    speech_en="Risk blocked",
+                    context={**context, "reason": result.get("reason")},
+                )
+            )
 
     def publish_result(self, result: dict[str, Any]) -> list[dict[str, Any]]:
         published: list[dict[str, Any]] = []
@@ -127,6 +174,15 @@ class Hermes3DEventJournal:
 
         risk = result.get("risk") if isinstance(result.get("risk"), dict) else {}
         risk_passed = bool(risk.get("approved")) or event_name in {"BUY_FILLED", "SHORT_FILLED"}
+        if action in {"BUY", "SHORT"}:
+            self._publish_risk_activity(
+                published=published,
+                strategy_id=strategy_id,
+                action=action,
+                result=result,
+                risk_passed=risk_passed,
+            )
+
         if action in {"BUY", "SHORT"} and risk_passed:
             published.append(
                 self.publish(
@@ -142,6 +198,21 @@ class Hermes3DEventJournal:
 
         if event_name in {"BUY_FILLED", "SHORT_FILLED"}:
             position = result.get("position") if isinstance(result.get("position"), dict) else {}
+            published.append(
+                self.publish_activity(
+                    agent_id="positions",
+                    activity="order_filled",
+                    state="SUCCESS",
+                    message_key="agent.execution.filled",
+                    speech_th="ออเดอร์ Filled แล้ว",
+                    speech_en="Order filled",
+                    context={
+                        "strategy_id": strategy_id,
+                        "order_id": position.get("order_id"),
+                        "symbol": position.get("symbol", result.get("symbol")),
+                    },
+                )
+            )
             published.append(
                 self.publish(
                     event="ORDER_OPEN",
@@ -165,6 +236,24 @@ class Hermes3DEventJournal:
                 result.get("closed_position")
                 if isinstance(result.get("closed_position"), dict)
                 else {}
+            )
+            published.append(
+                self.publish_activity(
+                    agent_id="positions",
+                    activity="position_closed",
+                    state="SUCCESS" if reason == "TP_HIT" else "WARNING",
+                    message_key=(
+                        "agent.position.take_profit" if reason == "TP_HIT" else "agent.position.stop_loss"
+                    ),
+                    speech_th="ปิดกำไรแล้ว" if reason == "TP_HIT" else "ปิดด้วย Stop Loss",
+                    speech_en="Profit taken" if reason == "TP_HIT" else "Stopped out",
+                    context={
+                        "strategy_id": strategy_id,
+                        "reason": reason,
+                        "symbol": closed.get("symbol", result.get("symbol")),
+                        "exit_price": closed.get("exit_price"),
+                    },
+                )
             )
             published.append(
                 self.publish(
@@ -195,6 +284,15 @@ class Hermes3DEventJournal:
         return published
 
     def publish_circuit_breaker(self, *, strategy_id: str, reason: str) -> dict[str, Any]:
+        self.publish_activity(
+            agent_id="risk-manager",
+            activity="circuit_breaker",
+            state="ERROR",
+            message_key="agent.risk.halted",
+            speech_th="หยุดระบบชั่วคราว",
+            speech_en="Trading halted",
+            context={"strategy_id": strategy_id, "reason": reason},
+        )
         return self.publish(
             event="CIRCUIT_BREAKER",
             agent_id="risk-manager",
@@ -235,6 +333,6 @@ class Hermes3DEventJournal:
         with self.path.open("rb") as handle:
             handle.seek(start)
             if start:
-                handle.readline()  # discard a potentially partial JSONL record
+                handle.readline()
             rows = handle.readlines()
         return self._decode_rows(rows)
