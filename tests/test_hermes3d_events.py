@@ -92,10 +92,12 @@ def test_event_journal_maps_trade_results(tmp_path: Path) -> None:
 
     assert names == [
         "AGENT_ACTIVITY",
+        "AGENT_ACTIVITY",
         "BUY_READY",
         "AGENT_ACTIVITY",
         "AGENT_ACTIVITY",
         "RISK_PASS",
+        "AGENT_ACTIVITY",
         "AGENT_ACTIVITY",
         "ORDER_OPEN",
         "STATE_CHANGED",
@@ -110,14 +112,24 @@ def test_event_journal_maps_trade_results(tmp_path: Path) -> None:
         for event in activities
     ]
     assert activity_states == [
+        ("baseline", "strategy_check", "WORKING"),
         ("baseline", "strategy_evaluated", "SUCCESS"),
         ("risk-manager", "risk_check", "WORKING"),
         ("risk-manager", "risk_approved", "SUCCESS"),
+        ("positions", "order_filled_sync", "WORKING"),
         ("positions", "order_filled", "SUCCESS"),
     ]
-    assert activities[1]["payload"]["speech"] == {
+    assert activities[0]["payload"]["speech"] == {
+        "th": "กำลังตรวจสัญญาณ",
+        "en": "Checking signal",
+    }
+    assert activities[2]["payload"]["speech"] == {
         "th": "กำลังตรวจ Risk",
         "en": "Checking risk",
+    }
+    assert activities[4]["payload"]["speech"] == {
+        "th": "กำลังบันทึก Position",
+        "en": "Updating position",
     }
     assert activities[-1]["payload"]["message_key"] == "agent.execution.filled"
 
@@ -193,6 +205,12 @@ def test_event_journal_maps_tp_and_circuit_breaker(tmp_path: Path) -> None:
     assert "TP_HIT" in names
     assert "CIRCUIT_BREAKER" in names
     activities = [event for event in records if event["event"] == "AGENT_ACTIVITY"]
+    position_states = [
+        event["payload"]["state"]
+        for event in activities
+        if event["agent_id"] == "positions"
+    ]
+    assert position_states == ["WORKING", "SUCCESS"]
     assert any(event["payload"]["activity"] == "position_closed" for event in activities)
     halt = [
         event for event in activities if event["payload"]["activity"] == "circuit_breaker"
