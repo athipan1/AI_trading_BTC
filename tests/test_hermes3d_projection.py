@@ -79,3 +79,68 @@ def test_projection_reconstructs_market_strategy_and_risk(tmp_path: Path) -> Non
     baseline = next(item for item in state["strategies"] if item["strategy_id"] == "baseline")
     assert baseline["signal"]["action"] == "BUY"
     assert baseline["risk"]["approved"] is True
+
+
+def test_projection_exposes_latest_agent_activity_without_changing_trading_truth(
+    tmp_path: Path,
+) -> None:
+    projection = build_projection(tmp_path)
+    projection.journal.publish(
+        event="AGENT_ACTIVITY",
+        agent_id="triple_ema",
+        payload={
+            "activity": "strategy_evaluated",
+            "state": "SUCCESS",
+            "message_key": "agent.strategy.evaluated",
+            "strategy_id": "triple_ema",
+            "signal_action": "HOLD",
+            "speech": {"th": "ตรวจสัญญาณแล้ว", "en": "Signal check complete"},
+        },
+    )
+
+    state = projection.state()
+
+    strategy = next(
+        item for item in state["strategies"] if item["strategy_id"] == "triple_ema"
+    )
+    agent = state["agent_statuses"]["triple_ema"]
+
+    assert strategy["signal"]["action"] == "HOLD"
+    assert agent["status"] == "HOLD"
+    assert agent["operational_status"] == "SUCCESS"
+    assert agent["activity"]["activity"] == "strategy_evaluated"
+    assert agent["activity"]["speech"] == {
+        "th": "ตรวจสัญญาณแล้ว",
+        "en": "Signal check complete",
+    }
+
+
+def test_projection_keeps_latest_activity_per_agent(tmp_path: Path) -> None:
+    projection = build_projection(tmp_path)
+    projection.journal.publish(
+        event="AGENT_ACTIVITY",
+        agent_id="risk-manager",
+        payload={
+            "activity": "risk_check",
+            "state": "WORKING",
+            "message_key": "agent.risk.checking",
+            "speech": {"th": "กำลังตรวจ Risk", "en": "Checking risk"},
+        },
+    )
+    projection.journal.publish(
+        event="AGENT_ACTIVITY",
+        agent_id="risk-manager",
+        payload={
+            "activity": "risk_approved",
+            "state": "SUCCESS",
+            "message_key": "agent.risk.approved",
+            "speech": {"th": "Risk ผ่าน", "en": "Risk approved"},
+        },
+    )
+
+    state = projection.state()
+    risk_agent = state["agent_statuses"]["risk-manager"]
+
+    assert risk_agent["status"] == "WATCH"
+    assert risk_agent["operational_status"] == "SUCCESS"
+    assert risk_agent["activity"]["activity"] == "risk_approved"
