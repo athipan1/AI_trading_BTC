@@ -28,3 +28,10 @@ def test_phase424_thai_speech_uses_unicode_aware_width_and_break_word() -> None:
     assert "char.codePointAt(0)" in source
     assert "> 0x7f ? 1.45 : 1" in source
     assert 'overflowWrap=\\"break-word\\"' in source
+
+
+def test_phase424_patch_supports_already_compact_runtime_source() -> None:
+    source = PATCHER.read_text(encoding="utf-8")
+    assert "source.includes(after)" in source
+    assert "before.find((candidate) => source.includes(candidate))" in source
+    assert "Math.min(2.55, Math.max(1.05, 0.92 + speechBubbleTextLength * 0.013))" in source
