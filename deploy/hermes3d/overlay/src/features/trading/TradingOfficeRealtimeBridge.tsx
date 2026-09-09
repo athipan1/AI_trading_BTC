@@ -246,13 +246,18 @@ export function TradingOfficeRealtimeBridge() {
         return;
       }
 
-      const mappedEvents = snapshotActivityEvents(event);
-      const mappedInstructions = mappedEvents.flatMap((mappedEvent) =>
-        mapTradingEventToAnimations(mappedEvent).map((instruction) => ({
-          eventName: mappedEvent.event,
-          instruction,
-        })),
-      );
+      const mappedInstructions =
+        event.event === "STATE_SNAPSHOT"
+          ? snapshotActivityEvents(event).flatMap((mappedEvent) =>
+              mapTradingEventToAnimations(mappedEvent).map((instruction) => ({
+                eventName: mappedEvent.event,
+                instruction,
+              })),
+            )
+          : mapTradingEventToAnimations(event).map((instruction) => ({
+              eventName: event.event,
+              instruction,
+            }));
       const instructions = mappedInstructions.map(({ instruction }) => instruction);
       const targets = instructions.map((instruction) => instruction.agentId);
       const phase = instructions[0]?.phase ?? "unmapped";
