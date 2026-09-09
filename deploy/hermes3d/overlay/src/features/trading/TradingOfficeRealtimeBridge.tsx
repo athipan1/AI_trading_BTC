@@ -69,6 +69,38 @@ const formatEventTime = (generatedAt?: string): string => {
     : timestamp.toLocaleTimeString();
 };
 
+const snapshotActivityEvents = (event: TradingRuntimeEvent): TradingRuntimeEvent[] => {
+  if (event.event !== "STATE_SNAPSHOT") return [event];
+
+  const payload = event.payload ?? {};
+  const statuses = payload.agent_statuses;
+  if (!statuses || typeof statuses !== "object" || Array.isArray(statuses)) return [];
+
+  const activityEvents: TradingRuntimeEvent[] = [];
+  for (const [agentId, rawStatus] of Object.entries(statuses as Record<string, unknown>)) {
+    if (!rawStatus || typeof rawStatus !== "object" || Array.isArray(rawStatus)) continue;
+    const status = rawStatus as Record<string, unknown>;
+    const rawActivity = status.activity;
+    if (!rawActivity || typeof rawActivity !== "object" || Array.isArray(rawActivity)) continue;
+
+    const activity = rawActivity as Record<string, unknown>;
+    activityEvents.push({
+      event: "AGENT_ACTIVITY",
+      agent_id: agentId,
+      generated_at:
+        typeof activity.generated_at === "string"
+          ? activity.generated_at
+          : event.generated_at,
+      payload: {
+        ...activity,
+        strategy_id: agentId,
+      },
+    });
+  }
+
+  return activityEvents;
+};
+
 export function TradingOfficeRealtimeBridge() {
   const { state, dispatch } = useAgentStore();
   const resetTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -214,18 +246,25 @@ export function TradingOfficeRealtimeBridge() {
         return;
       }
 
-      const instructions = mapTradingEventToAnimations(event);
+      const mappedEvents = snapshotActivityEvents(event);
+      const mappedInstructions = mappedEvents.flatMap((mappedEvent) =>
+        mapTradingEventToAnimations(mappedEvent).map((instruction) => ({
+          eventName: mappedEvent.event,
+          instruction,
+        })),
+      );
+      const instructions = mappedInstructions.map(({ instruction }) => instruction);
       const targets = instructions.map((instruction) => instruction.agentId);
       const phase = instructions[0]?.phase ?? "unmapped";
       let applied = 0;
 
-      for (const instruction of instructions) {
-        if (applyInstruction(event.event, instruction)) {
+      for (const { eventName, instruction } of mappedInstructions) {
+        if (applyInstruction(eventName, instruction)) {
           applied += 1;
           delete pendingInstructions.current[instruction.agentId];
         } else {
           pendingInstructions.current[instruction.agentId] = {
-            eventName: event.event,
+            eventName,
             instruction,
           };
         }
