@@ -11,6 +11,7 @@ RUN git clone --filter=blob:none https://github.com/iamlukethedev/Hermes3D.git /
     && rm -rf /app/.git
 WORKDIR /app
 COPY deploy/hermes3d/overlay/ /app/
+RUN node scripts/apply-trading-speech-ux.mjs
 
 FROM node:22-slim AS deps
 WORKDIR /app
