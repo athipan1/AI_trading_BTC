@@ -10,8 +10,8 @@ const replacements = [
     "const MAX_SPEECH_BUBBLE_TEXT_LENGTH = 96;\nconst MAX_SPEECH_BUBBLE_LINES = 3;",
   ],
   [
-    "? Math.min(4.6, Math.max(1.8, 1.55 + speechBubbleTextLength * 0.018))",
-    "? Math.min(2.55, Math.max(1.05, 0.92 + speechBubbleTextLength * 0.013))",
+    "const speechBubbleTextLength = speechBubbleDisplayText.length;\n  const speechBubbleWidth = activeSpeechBubble\n    ? Math.min(4.6, Math.max(1.8, 1.55 + speechBubbleTextLength * 0.018))\n    : 0.36;",
+    "const speechBubbleTextLength = speechBubbleDisplayText.length;\n  const speechBubbleDisplayUnits = [...speechBubbleDisplayText].reduce(\n    (units, char) => units + ((char.codePointAt(0) ?? 0) > 0x7f ? 1.45 : 1),\n    0,\n  );\n  const speechBubbleWidth = activeSpeechBubble\n    ? Math.min(2.55, Math.max(1.25, 0.82 + speechBubbleDisplayUnits * 0.055))\n    : 0.36;",
   ],
   [
     "const speechBubblePaddingX = activeSpeechBubble ? 0.34 : 0.06;\n  const speechBubblePaddingY = activeSpeechBubble ? 0.3 : 0.06;",
@@ -40,6 +40,10 @@ const replacements = [
   [
     "<planeGeometry args={[0.22, 0.22]} />",
     "<planeGeometry args={[0.12, 0.12]} />",
+  ],
+  [
+    "lineHeight={1.1}\n            renderOrder={100000}",
+    "lineHeight={1.1}\n            overflowWrap=\"break-word\"\n            renderOrder={100000}",
   ],
 ];
 
