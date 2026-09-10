@@ -126,6 +126,15 @@ class Hermes3DLegacyLogSidecar:
         inode = int(stat.st_ino)
         offset = int(cursor.get("offset", 0))
         previous_inode = int(cursor.get("inode", 0))
+
+        # A source may not exist when the sidecar first starts. In that case its
+        # cursor is persisted as the 0/0 sentinel. If the file appears later and
+        # this sidecar is configured for zero-downtime attach, adopt the live file
+        # at EOF instead of replaying its entire historical contents from byte 0.
+        if previous_inode == 0 and offset == 0 and self.start_at_end:
+            self.cursors[source.source_id] = {"offset": stat.st_size, "inode": inode}
+            return 0, 0
+
         if previous_inode not in {0, inode} or stat.st_size < offset:
             offset = 0
 
