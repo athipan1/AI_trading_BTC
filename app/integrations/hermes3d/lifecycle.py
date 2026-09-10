@@ -17,6 +17,23 @@ LIFECYCLE_STATES = frozenset(
 ACTIVE_TRADE_STATES = frozenset({"ORDER_OPENED", "POSITION_ACTIVE", "RECONCILING"})
 TERMINAL_TRADE_STATES = frozenset({"POSITION_CLOSED", "PNL_RECONCILED", "HALTED"})
 
+# Transaction progress is intentionally monotonic. RECONCILING is placed between
+# order-open and position-active so fill reconciliation can advance an order, but a
+# later duplicate ORDER_OPEN event cannot move an already-active position backwards.
+TRADE_STATE_PROGRESS = {
+    "STRATEGY_EVALUATING": 10,
+    "SIGNAL_DETECTED": 20,
+    "RISK_CHECKING": 30,
+    "RISK_REJECTED": 40,
+    "RISK_APPROVED": 40,
+    "ORDER_OPENED": 50,
+    "RECONCILING": 55,
+    "POSITION_ACTIVE": 60,
+    "POSITION_CLOSED": 70,
+    "PNL_RECONCILED": 80,
+    "HALTED": 90,
+}
+
 
 def _string(value: object) -> str | None:
     if value is None:
@@ -96,6 +113,25 @@ def _trade_item(
     }
 
 
+def _trade_history_key(item: dict[str, object]) -> str:
+    return str(item.get("generated_at") or "")
+
+
+def _project_trade(history: list[dict[str, object]]) -> dict[str, object]:
+    ordered_history = sorted(history, key=_trade_history_key)
+    current = ordered_history[0]
+    for candidate in ordered_history[1:]:
+        current_rank = TRADE_STATE_PROGRESS[str(current["state"])]
+        candidate_rank = TRADE_STATE_PROGRESS[str(candidate["state"])]
+        if candidate_rank >= current_rank:
+            current = candidate
+
+    trade_item = dict(current)
+    trade_item["history"] = ordered_history
+    trade_item["terminal"] = str(current["state"]) in TERMINAL_TRADE_STATES
+    return trade_item
+
+
 def _select_active_trade(by_trade: dict[str, dict[str, object]]) -> dict[str, object] | None:
     candidates = [
         item for item in by_trade.values() if str(item.get("state")) in ACTIVE_TRADE_STATES
@@ -109,12 +145,13 @@ def lifecycle_snapshot(records: list[dict[str, object]]) -> dict[str, object]:
     """Project journal events into per-agent and transaction-scoped lifecycle state.
 
     Phase 4.5 keeps the Phase 4.4 per-agent projection intact, while each correlated
-    trade gains a history and deterministic active-trade selection. Events without a
-    trade id can update an agent without contaminating another trade's lifecycle.
+    trade gains a history and deterministic active-trade selection. Phase 4.5.1
+    hardens transaction projection against duplicate or late lower-stage events so a
+    trade's current state cannot regress even when sidecar event order is imperfect.
     """
 
     by_agent: dict[str, dict[str, object]] = {}
-    by_trade: dict[str, dict[str, object]] = {}
+    trade_histories: dict[str, list[dict[str, object]]] = {}
 
     for record in records:
         state = lifecycle_state_from_event(record)
@@ -135,14 +172,13 @@ def lifecycle_snapshot(records: list[dict[str, object]]) -> dict[str, object]:
 
         trade_id = correlation.get("trade_id")
         if trade_id:
-            previous = by_trade.get(trade_id)
-            history = list(previous.get("history", [])) if previous else []
-            history.append(item)
-            trade_item = dict(item)
-            trade_item["history"] = history
-            trade_item["terminal"] = state in TERMINAL_TRADE_STATES
-            by_trade[trade_id] = trade_item
+            trade_histories.setdefault(trade_id, []).append(item)
 
+    by_trade = {
+        trade_id: _project_trade(history)
+        for trade_id, history in trade_histories.items()
+        if history
+    }
     active_trade = _select_active_trade(by_trade)
     return {
         "by_agent": by_agent,
