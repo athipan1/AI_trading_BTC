@@ -160,3 +160,57 @@ def test_sidecar_cursor_prevents_duplicate_replay_after_restart(tmp_path: Path) 
     )
     assert restarted.poll_once() == {"lines": 0, "events": 0}
     assert len(journal.read_from(0)[1]) == before
+
+
+def test_sidecar_late_source_attaches_at_eof_without_replaying_history(tmp_path: Path) -> None:
+    futures = tmp_path / "futures.log"
+    journal = Hermes3DEventJournal(tmp_path / "events.jsonl")
+    cursor_store = Hermes3DSidecarCursorStore(tmp_path / "cursors.json")
+    sidecar = Hermes3DLegacyLogSidecar(
+        sources=[LogSource("futures", futures)],
+        journal=journal,
+        cursor_store=cursor_store,
+        start_at_end=True,
+    )
+
+    assert sidecar.cursors["futures"] == {"offset": 0, "inode": 0}
+
+    futures.write_text(
+        json.dumps(
+            {
+                "event": "SHORT_FILLED",
+                "strategy_id": "triple_ema_short",
+                "signal": {"action": "SHORT"},
+                "position": {"order_id": "old-order", "symbol": "BTC/USDT"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert sidecar.poll_once() == {"lines": 0, "events": 0}
+    adopted = sidecar.cursors["futures"]
+    assert adopted["inode"] == futures.stat().st_ino
+    assert adopted["offset"] == futures.stat().st_size
+    assert journal.read_from(0)[1] == []
+
+    _append(
+        futures,
+        {
+            "event": "SHORT_FILLED",
+            "strategy_id": "triple_ema_short",
+            "signal": {"action": "SHORT"},
+            "position": {"order_id": "new-order", "symbol": "BTC/USDT"},
+        },
+    )
+
+    result = sidecar.poll_once()
+    assert result["lines"] == 1
+    assert result["events"] > 0
+    _, records = journal.read_from(0)
+    assert any(
+        record["event"] == "ORDER_OPEN"
+        and record["payload"].get("order_id") == "new-order"
+        for record in records
+    )
+    assert all(record["payload"].get("order_id") != "old-order" for record in records)
