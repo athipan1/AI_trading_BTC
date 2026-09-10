@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import dataclasses
-import typing
 
-
-LIFECYCLE_STATES: typing.Final[frozenset[str]] = frozenset(
+LIFECYCLE_STATES = frozenset(
     {
         "STRATEGY_EVALUATING",
         "SIGNAL_DETECTED",
@@ -21,31 +18,16 @@ LIFECYCLE_STATES: typing.Final[frozenset[str]] = frozenset(
 )
 
 
-@dataclasses.dataclass(frozen=True)
-class TradeCorrelation:
-    strategy_id: str | None
-    symbol: str | None
-    order_id: str | None
-    trade_id: str | None
-
-    def as_dict(self) -> dict[str, str | None]:
-        return {
-            "strategy_id": self.strategy_id,
-            "symbol": self.symbol,
-            "order_id": self.order_id,
-            "trade_id": self.trade_id,
-        }
-
-
-def _string(value: typing.Any) -> str | None:
+def _string(value: object) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
     return text or None
 
 
-def correlation_from_event(record: dict[str, typing.Any]) -> TradeCorrelation:
-    payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+def correlation_from_event(record: dict[str, object]) -> dict[str, str | None]:
+    payload_value = record.get("payload")
+    payload = payload_value if isinstance(payload_value, dict) else {}
     strategy_id = _string(payload.get("strategy_id"))
     if strategy_id is None and str(record.get("agent_id") or "") in {
         "baseline",
@@ -60,17 +42,18 @@ def correlation_from_event(record: dict[str, typing.Any]) -> TradeCorrelation:
     if trade_id is None and strategy_id and order_id:
         trade_id = f"{strategy_id}:{order_id}"
 
-    return TradeCorrelation(
-        strategy_id=strategy_id,
-        symbol=symbol,
-        order_id=order_id,
-        trade_id=trade_id,
-    )
+    return {
+        "strategy_id": strategy_id,
+        "symbol": symbol,
+        "order_id": order_id,
+        "trade_id": trade_id,
+    }
 
 
-def lifecycle_state_from_event(record: dict[str, typing.Any]) -> str | None:
+def lifecycle_state_from_event(record: dict[str, object]) -> str | None:
     event = str(record.get("event") or "").upper()
-    payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+    payload_value = record.get("payload")
+    payload = payload_value if isinstance(payload_value, dict) else {}
 
     if event == "AGENT_ACTIVITY":
         activity = str(payload.get("activity") or "").lower()
@@ -97,15 +80,15 @@ def lifecycle_state_from_event(record: dict[str, typing.Any]) -> str | None:
     }.get(event)
 
 
-def lifecycle_snapshot(records: list[dict[str, typing.Any]]) -> dict[str, typing.Any]:
+def lifecycle_snapshot(records: list[dict[str, object]]) -> dict[str, object]:
     """Project journal events into deterministic per-agent/per-trade lifecycle state.
 
     This function is read-only. It preserves the existing Hermes3D wire events and
     derives a canonical lifecycle for observability without changing execution.
     """
 
-    by_agent: dict[str, dict[str, typing.Any]] = {}
-    by_trade: dict[str, dict[str, typing.Any]] = {}
+    by_agent: dict[str, dict[str, object]] = {}
+    by_trade: dict[str, dict[str, object]] = {}
 
     for record in records:
         state = lifecycle_state_from_event(record)
@@ -116,16 +99,17 @@ def lifecycle_snapshot(records: list[dict[str, typing.Any]]) -> dict[str, typing
 
         agent_id = _string(record.get("agent_id")) or "system"
         correlation = correlation_from_event(record)
-        item = {
+        item: dict[str, object] = {
             "state": state,
             "event": _string(record.get("event")),
             "agent_id": agent_id,
             "generated_at": _string(record.get("generated_at")),
-            "correlation": correlation.as_dict(),
+            "correlation": correlation,
         }
         by_agent[agent_id] = item
-        if correlation.trade_id:
-            by_trade[correlation.trade_id] = item
+        trade_id = correlation.get("trade_id")
+        if trade_id:
+            by_trade[trade_id] = item
 
     return {
         "by_agent": by_agent,
