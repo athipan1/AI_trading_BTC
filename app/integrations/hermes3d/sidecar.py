@@ -76,8 +76,24 @@ class Hermes3DLegacyLogSidecar:
     def _initialize_missing_cursors(self) -> None:
         changed = False
         for source in self.sources:
-            if source.source_id in self.cursors:
+            cursor = self.cursors.get(source.source_id)
+            if cursor is not None:
+                if (
+                    self.start_at_end
+                    and int(cursor.get("inode", 0)) == 0
+                    and int(cursor.get("offset", 0)) == 0
+                ):
+                    try:
+                        stat = source.path.stat()
+                    except FileNotFoundError:
+                        continue
+                    self.cursors[source.source_id] = {
+                        "offset": stat.st_size,
+                        "inode": int(stat.st_ino),
+                    }
+                    changed = True
                 continue
+
             try:
                 stat = source.path.stat()
             except FileNotFoundError:
@@ -127,10 +143,6 @@ class Hermes3DLegacyLogSidecar:
         offset = int(cursor.get("offset", 0))
         previous_inode = int(cursor.get("inode", 0))
 
-        # A source may not exist when the sidecar first starts. In that case its
-        # cursor is persisted as the 0/0 sentinel. If the file appears later and
-        # this sidecar is configured for zero-downtime attach, adopt the live file
-        # at EOF instead of replaying its entire historical contents from byte 0.
         if previous_inode == 0 and offset == 0 and self.start_at_end:
             self.cursors[source.source_id] = {"offset": stat.st_size, "inode": inode}
             return 0, 0
