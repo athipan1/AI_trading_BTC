@@ -37,6 +37,18 @@
     max-width: 100vw;
   }
 
+  /* Phase 4.6 Active Trade stays compact and clear of the left-side SSE badge. */
+  [data-active-trade-panel] {
+    top: 3rem !important;
+    right: 0.5rem !important;
+    left: auto !important;
+    width: min(92vw, 22.5rem) !important;
+  }
+
+  [data-active-trade-panel] #active-trade-panel-body {
+    max-height: min(52dvh, 26rem) !important;
+  }
+
   /* Give Hermes3D exclusive control of drag/pinch gestures inside the 3D viewport. */
   canvas {
     touch-action: none;
@@ -56,11 +68,24 @@
     padding-right: 0.5rem;
     letter-spacing: 0.06em;
   }
+
+  [data-active-trade-panel] #active-trade-panel-body {
+    max-height: 45dvh !important;
+  }
 }
 
 @media (orientation: landscape) and (max-height: 520px) {
   [data-hq-panel] {
     max-height: 62dvh !important;
+  }
+
+  [data-active-trade-panel] {
+    top: 0.5rem !important;
+    width: min(48vw, 22.5rem) !important;
+  }
+
+  [data-active-trade-panel] #active-trade-panel-body {
+    max-height: 72dvh !important;
   }
 
   section.pointer-events-auto.fixed.bottom-3.left-3.z-30 {
