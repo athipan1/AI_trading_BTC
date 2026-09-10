@@ -44,13 +44,15 @@ def build_hermes3d_router(
     @router.get("/state")
     def state() -> dict[str, Any]:
         payload = reader.state()
-        # Phase 4.4 introduced a canonical trade lifecycle while the projection
-        # already exposed the same snapshot under the legacy `lifecycle` key.
-        # Keep the old key for compatibility and expose the contract name at the
-        # API boundary so runtime consumers have one unambiguous field to read.
         if "trade_lifecycle" not in payload and "lifecycle" in payload:
             payload = dict(payload)
             payload["trade_lifecycle"] = payload["lifecycle"]
+
+        lifecycle = payload.get("trade_lifecycle")
+        if isinstance(lifecycle, dict):
+            payload = dict(payload)
+            payload.setdefault("active_trade", lifecycle.get("active_trade"))
+            payload.setdefault("trade_lifecycles", lifecycle.get("trade_lifecycles", {}))
         return payload
 
     if analytics_reader is not None:
