@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from app.integrations.hermes3d.production_analytics_readiness import (
+    ProductionAnalyticsReadinessProjection,
+)
 from app.integrations.hermes3d.quant_performance import QuantPerformanceProjection
 from app.integrations.hermes3d.trade_efficiency import TradeEfficiencyProjection
 from app.monitoring.position_store import PositionStore
@@ -47,6 +50,10 @@ class Hermes3DQuantAnalyticsProjection:
                 ),
             },
             "data_quality": QuantPerformanceProjection.data_availability(positions),
+            "production_readiness": {
+                "portfolio": ProductionAnalyticsReadinessProjection.summarize(positions),
+                "strategies": ProductionAnalyticsReadinessProjection.by_strategy(positions),
+            },
         }
         if self.validation_position_store is not None:
             validation_positions = self.validation_position_store.load()
