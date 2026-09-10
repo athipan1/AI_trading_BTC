@@ -1,6 +1,3 @@
-from __future__ import annotations
-
-
 LIFECYCLE_STATES = frozenset(
     {
         "STRATEGY_EVALUATING",
