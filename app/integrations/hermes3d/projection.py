@@ -6,6 +6,7 @@ from typing import Any
 
 from app.auto_trading.state_store import AutoTradeStateStore
 from app.integrations.hermes3d.journal import Hermes3DEventJournal
+from app.integrations.hermes3d.lifecycle import lifecycle_snapshot
 from app.monitoring.position_store import PositionStore
 
 
@@ -53,6 +54,7 @@ class Hermes3DJournalStateProjection:
                 "risk",
                 "positions",
                 "realtime_events",
+                "trade_lifecycle",
                 "sse",
                 "websocket",
             ],
@@ -191,6 +193,8 @@ class Hermes3DJournalStateProjection:
         ready_by_strategy = self._latest_by_strategy(records, {"BUY_READY", "SHORT_READY"})
         risk_by_strategy = self._latest_by_strategy(records, {"RISK_PASS"})
         activity_by_agent = self._latest_activity_by_agent(records)
+        lifecycle = lifecycle_snapshot(records)
+        lifecycle_by_agent = lifecycle["by_agent"]
         automation_states = self._automation_states()
 
         strategy_states: list[dict[str, Any]] = []
@@ -286,6 +290,10 @@ class Hermes3DJournalStateProjection:
             agent_statuses[agent_id]["operational_status"] = activity["state"]
             agent_statuses[agent_id]["activity"] = activity
 
+        for agent_id, lifecycle_state in lifecycle_by_agent.items():
+            if agent_id in agent_statuses:
+                agent_statuses[agent_id]["lifecycle"] = lifecycle_state
+
         return {
             "generated_at": self._now(),
             "profileName": "btc-trading-room",
@@ -303,6 +311,7 @@ class Hermes3DJournalStateProjection:
             },
             "active": {agent_id: ["readonly-observer"] for agent_id in agent_statuses},
             "agent_statuses": agent_statuses,
+            "lifecycle": lifecycle,
             "permissions": {
                 "market_read": True,
                 "strategy_read": True,
