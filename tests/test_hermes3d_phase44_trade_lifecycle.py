@@ -56,10 +56,10 @@ def test_correlation_uses_strategy_and_order_as_stable_trade_id() -> None:
         },
     )
     correlation = correlation_from_event(record)
-    assert correlation.strategy_id == "triple_ema"
-    assert correlation.symbol == "BTC/USDT"
-    assert correlation.order_id == "12345"
-    assert correlation.trade_id == "triple_ema:12345"
+    assert correlation["strategy_id"] == "triple_ema"
+    assert correlation["symbol"] == "BTC/USDT"
+    assert correlation["order_id"] == "12345"
+    assert correlation["trade_id"] == "triple_ema:12345"
 
 
 def test_lifecycle_snapshot_tracks_latest_agent_and_trade_state() -> None:
