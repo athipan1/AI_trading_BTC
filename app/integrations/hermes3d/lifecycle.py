@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Final
+import dataclasses
+import typing
 
 
-LIFECYCLE_STATES: Final[frozenset[str]] = frozenset(
+LIFECYCLE_STATES: typing.Final[frozenset[str]] = frozenset(
     {
         "STRATEGY_EVALUATING",
         "SIGNAL_DETECTED",
@@ -21,7 +21,7 @@ LIFECYCLE_STATES: Final[frozenset[str]] = frozenset(
 )
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class TradeCorrelation:
     strategy_id: str | None
     symbol: str | None
@@ -37,14 +37,14 @@ class TradeCorrelation:
         }
 
 
-def _string(value: Any) -> str | None:
+def _string(value: typing.Any) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
     return text or None
 
 
-def correlation_from_event(record: dict[str, Any]) -> TradeCorrelation:
+def correlation_from_event(record: dict[str, typing.Any]) -> TradeCorrelation:
     payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
     strategy_id = _string(payload.get("strategy_id"))
     if strategy_id is None and str(record.get("agent_id") or "") in {
@@ -68,7 +68,7 @@ def correlation_from_event(record: dict[str, Any]) -> TradeCorrelation:
     )
 
 
-def lifecycle_state_from_event(record: dict[str, Any]) -> str | None:
+def lifecycle_state_from_event(record: dict[str, typing.Any]) -> str | None:
     event = str(record.get("event") or "").upper()
     payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
 
@@ -97,15 +97,15 @@ def lifecycle_state_from_event(record: dict[str, Any]) -> str | None:
     }.get(event)
 
 
-def lifecycle_snapshot(records: list[dict[str, Any]]) -> dict[str, Any]:
+def lifecycle_snapshot(records: list[dict[str, typing.Any]]) -> dict[str, typing.Any]:
     """Project journal events into deterministic per-agent/per-trade lifecycle state.
 
     This function is read-only. It preserves the existing Hermes3D wire events and
     derives a canonical lifecycle for observability without changing execution.
     """
 
-    by_agent: dict[str, dict[str, Any]] = {}
-    by_trade: dict[str, dict[str, Any]] = {}
+    by_agent: dict[str, dict[str, typing.Any]] = {}
+    by_trade: dict[str, dict[str, typing.Any]] = {}
 
     for record in records:
         state = lifecycle_state_from_event(record)
