@@ -71,9 +71,11 @@ class ResearchTradeDatasetProjection:
         strategy_id: str | None,
         regime: str | None,
     ) -> bool:
-        if strategy_id is not None and str(item.get("strategy_id", "baseline")).lower() != strategy_id:
+        item_strategy = str(item.get("strategy_id", "baseline")).lower()
+        item_regime = str(item.get("entry_market_regime", "")).upper()
+        if strategy_id is not None and item_strategy != strategy_id:
             return False
-        if regime is not None and str(item.get("entry_market_regime", "")).upper() != regime:
+        if regime is not None and item_regime != regime:
             return False
         return True
 
@@ -103,6 +105,9 @@ class ResearchTradeDatasetProjection:
             item.get("exit_commission_quote_equivalent")
         )
         total_fee = entry_fee + exit_fee if entry_fee is not None and exit_fee is not None else None
+        quantity = QuantPerformanceProjection._float(item.get("entry_filled_quantity"))
+        if quantity is None:
+            quantity = QuantPerformanceProjection._float(item.get("quantity"))
 
         return {
             "order_id": str(item.get("order_id", "")),
@@ -113,17 +118,22 @@ class ResearchTradeDatasetProjection:
             "closed_at": item.get("closed_at"),
             "exit_reason": item.get("exit_reason"),
             "entry_price": QuantPerformanceProjection._float(item.get("entry_price")),
-            "entry_fill_price": QuantPerformanceProjection._float(item.get("entry_fill_price")),
-            "quantity": QuantPerformanceProjection._float(item.get("entry_filled_quantity"))
-            or QuantPerformanceProjection._float(item.get("quantity")),
-            "initial_stop_loss": QuantPerformanceProjection._float(item.get("initial_stop_loss")),
+            "entry_fill_price": QuantPerformanceProjection._float(
+                item.get("entry_fill_price")
+            ),
+            "quantity": quantity,
+            "initial_stop_loss": QuantPerformanceProjection._float(
+                item.get("initial_stop_loss")
+            ),
             "initial_risk_price_distance": QuantPerformanceProjection._float(
                 item.get("initial_risk_price_distance")
             ),
             "initial_risk_usdt": risk,
             "entry_market_regime": item.get("entry_market_regime"),
             "exit_price": QuantPerformanceProjection._float(item.get("exit_price")),
-            "exit_fill_price": QuantPerformanceProjection._float(item.get("exit_fill_price")),
+            "exit_fill_price": QuantPerformanceProjection._float(
+                item.get("exit_fill_price")
+            ),
             "holding_seconds": QuantPerformanceProjection._holding_seconds(item),
             "trade_path_highest_price": QuantPerformanceProjection._float(
                 item.get("trade_path_highest_price")
@@ -131,13 +141,19 @@ class ResearchTradeDatasetProjection:
             "trade_path_lowest_price": QuantPerformanceProjection._float(
                 item.get("trade_path_lowest_price")
             ),
-            "trade_path_observation_count": int(item.get("trade_path_observation_count") or 0),
+            "trade_path_observation_count": int(
+                item.get("trade_path_observation_count") or 0
+            ),
             "mae_usdt": path["mae_usdt"],
             "mfe_usdt": path["mfe_usdt"],
             "mae_r": path["mae_r"],
             "mfe_r": path["mfe_r"],
-            "gross_realized_pnl": QuantPerformanceProjection._float(item.get("gross_realized_pnl")),
-            "net_realized_pnl": QuantPerformanceProjection._float(item.get("net_realized_pnl")),
+            "gross_realized_pnl": QuantPerformanceProjection._float(
+                item.get("gross_realized_pnl")
+            ),
+            "net_realized_pnl": QuantPerformanceProjection._float(
+                item.get("net_realized_pnl")
+            ),
             "realized_r": efficiency["realized_r"],
             "entry_commission_usdt": entry_fee,
             "exit_commission_usdt": exit_fee,
@@ -180,7 +196,12 @@ class ResearchTradeDatasetProjection:
                 continue
             rows.append(cls._row(item))
 
-        rows.sort(key=lambda row: (str(row.get("closed_at") or ""), str(row.get("order_id") or "")))
+        rows.sort(
+            key=lambda row: (
+                str(row.get("closed_at") or ""),
+                str(row.get("order_id") or ""),
+            )
+        )
         strategies = sorted({str(row["strategy_id"]) for row in rows})
         regimes = sorted({str(row["entry_market_regime"]) for row in rows})
 
