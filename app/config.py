@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     hermes3d_event_interval_seconds: float = Field(default=0.25, gt=0, le=10)
     hermes3d_validation_simulator_enabled: bool = False
 
+    research_historical_trade_store: str = "state/research/historical-trades.json"
+
     phase41_validation_trade_enabled: bool = False
     phase41_validation_position_store: str = "state/phase41-validation-positions.json"
     phase41_validation_notional_usdt: float = Field(default=10.0, gt=0, le=25)

@@ -18,6 +18,7 @@ from app.market_data.service import MarketDataError, MarketDataService
 from app.monitoring.binance_fill_reconciler import BinanceSpotFillSource, PositionFillReconciler
 from app.monitoring.position_store import PositionStore
 from app.monitoring.trade_path_observer import TradePathObserver
+from app.research.historical_store import HistoricalResearchStore
 from app.research.router import build_research_router
 from app.risk.engine import RiskEngine
 from app.strategies.baseline import BaselineStrategy
@@ -43,6 +44,7 @@ cycle = TradingCycle(market_data, strategy, risk, broker)
 hermes3d_journal = Hermes3DEventJournal(settings.hermes3d_event_journal)
 hermes3d_spot_positions = PositionStore(settings.hermes3d_spot_position_store)
 hermes3d_futures_positions = PositionStore(settings.hermes3d_futures_position_store)
+research_historical_trades = HistoricalResearchStore(settings.research_historical_trade_store)
 phase41_validation_positions = PositionStore(settings.phase41_validation_position_store)
 hermes3d_auto_state_paths = {
     "baseline": settings.hermes3d_baseline_state_store,
@@ -91,6 +93,7 @@ app.include_router(
     build_research_router(
         spot_position_store=hermes3d_spot_positions,
         futures_position_store=hermes3d_futures_positions,
+        historical_trade_store=research_historical_trades,
     )
 )
 
