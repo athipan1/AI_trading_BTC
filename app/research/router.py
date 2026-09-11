@@ -30,7 +30,7 @@ def build_research_router(
 
     @router.get("/trades")
     def research_trades(
-        source: ResearchSource = Query(default="production"),
+        source: ResearchSource = "production",
         strategy: str | None = Query(default=None),
         regime: str | None = Query(default=None),
     ) -> dict[str, object]:
@@ -44,7 +44,7 @@ def build_research_router(
 
     @router.get("/trades.csv")
     def research_trades_csv(
-        source: ResearchSource = Query(default="production"),
+        source: ResearchSource = "production",
         strategy: str | None = Query(default=None),
         regime: str | None = Query(default=None),
     ) -> Response:
@@ -72,7 +72,7 @@ def build_research_router(
 
     @router.get("/features")
     def research_features(
-        source: ResearchSource = Query(default="production"),
+        source: ResearchSource = "production",
         strategy: str | None = Query(default=None),
         regime: str | None = Query(default=None),
     ) -> dict[str, object]:
@@ -86,7 +86,7 @@ def build_research_router(
 
     @router.get("/dataset-quality")
     def research_dataset_quality(
-        source: ResearchSource = Query(default="production"),
+        source: ResearchSource = "production",
         strategy: str | None = Query(default=None),
         regime: str | None = Query(default=None),
     ) -> dict[str, object]:
@@ -100,7 +100,7 @@ def build_research_router(
 
     @router.get("/dataset-split")
     def research_dataset_split(
-        source: ResearchSource = Query(default="production"),
+        source: ResearchSource = "production",
         strategy: str | None = Query(default=None),
         regime: str | None = Query(default=None),
     ) -> dict[str, object]:
