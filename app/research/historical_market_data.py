@@ -69,6 +69,9 @@ class HistoricalMarketDataService(MarketDataService):
             close = getattr(exchange, "close", None)
             if callable(close):
                 close()
-        if any(a.timestamp_ms >= b.timestamp_ms for a, b in zip(candles, candles[1:], strict=True)):
+        if any(
+            previous.timestamp_ms >= current.timestamp_ms
+            for previous, current in zip(candles, candles[1:], strict=False)
+        ):
             raise MarketDataError("historical timestamps are not strictly increasing")
         return candles
