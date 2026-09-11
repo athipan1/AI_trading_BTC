@@ -30,13 +30,25 @@ class ProductionAnalyticsReadinessProjection:
         )
 
     @classmethod
+    def qualification_failures(cls, item: dict[str, Any]) -> list[str]:
+        failures: list[str] = []
+        if not cls._is_reconciled_closed(item):
+            failures.append("NOT_RECONCILED_CLOSED")
+        if not cls._has_entry_risk_snapshot(item):
+            failures.append("MISSING_INITIAL_RISK_SNAPSHOT")
+        if not item.get("entry_market_regime"):
+            failures.append("MISSING_ENTRY_MARKET_REGIME")
+        if QuantPerformanceProjection._path_excursion(item) is None:
+            failures.append("MISSING_TRADE_PATH")
+        return failures
+
+    @classmethod
+    def is_qualified_trade(cls, item: dict[str, Any]) -> bool:
+        return not cls.qualification_failures(item)
+
+    @classmethod
     def _is_qualified(cls, item: dict[str, Any]) -> bool:
-        return (
-            cls._is_reconciled_closed(item)
-            and cls._has_entry_risk_snapshot(item)
-            and bool(item.get("entry_market_regime"))
-            and QuantPerformanceProjection._path_excursion(item) is not None
-        )
+        return cls.is_qualified_trade(item)
 
     @staticmethod
     def _coverage(count: int, total: int) -> float:
@@ -46,7 +58,7 @@ class ProductionAnalyticsReadinessProjection:
     def summarize(cls, positions: list[dict[str, Any]]) -> dict[str, Any]:
         closed = [item for item in positions if item.get("status") == "CLOSED"]
         reconciled = [item for item in closed if cls._is_reconciled_closed(item)]
-        qualified = [item for item in reconciled if cls._is_qualified(item)]
+        qualified = [item for item in reconciled if cls.is_qualified_trade(item)]
 
         total_closed = len(closed)
         total_reconciled = len(reconciled)
