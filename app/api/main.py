@@ -18,6 +18,7 @@ from app.market_data.service import MarketDataError, MarketDataService
 from app.monitoring.binance_fill_reconciler import BinanceSpotFillSource, PositionFillReconciler
 from app.monitoring.position_store import PositionStore
 from app.monitoring.trade_path_observer import TradePathObserver
+from app.research.router import build_research_router
 from app.risk.engine import RiskEngine
 from app.strategies.baseline import BaselineStrategy
 from app.trading_cycle import TradingCycle
@@ -84,6 +85,12 @@ app.include_router(
         analytics_reader=hermes3d_analytics,
         validation_simulator=hermes3d_validation_simulator,
         validation_simulator_enabled=settings.hermes3d_validation_simulator_enabled,
+    )
+)
+app.include_router(
+    build_research_router(
+        spot_position_store=hermes3d_spot_positions,
+        futures_position_store=hermes3d_futures_positions,
     )
 )
 
