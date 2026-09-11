@@ -61,16 +61,18 @@ def test_dataset_contains_only_phase47_qualified_trades() -> None:
         [legacy, open_trade, _qualified_trade("qualified")]
     )
 
-    assert result["schema_version"] == "research_trade_schema_v1"
-    assert result["basis"] == "phase47_qualified_reconciled_closed_trades"
+    assert result["schema_version"] == "research_trade_schema_v2"
+    assert result["basis"] == "qualified_production_and_historical_replay_trades"
     assert result["read_only"] is True
     assert result["metadata"]["qualified_trades"] == 1
     assert result["metadata"]["excluded_candidates"] == 2
     assert result["rows"][0]["order_id"] == "qualified"
+    assert result["rows"][0]["data_origin"] == "production"
     assert result["rows"][0]["realized_r"] > 1.0
     assert result["rows"][0]["mfe_r"] > 0
     assert result["rows"][0]["mae_r"] <= 0
     assert "entry_market_regime" in result["columns"]["features"]
+    assert "data_origin" in result["columns"]["metadata"]
     assert "net_realized_pnl" in result["columns"]["targets"]
 
 
@@ -90,6 +92,7 @@ def test_dataset_filters_strategy_and_regime() -> None:
     assert result["metadata"]["filtered_candidates"] == 1
     assert result["metadata"]["qualified_trades"] == 1
     assert result["rows"][0]["order_id"] == "short-bear"
+    assert result["filters"]["source"] == "production"
     assert result["filters"]["strategy_id"] == "triple_ema_short"
     assert result["filters"]["entry_market_regime"] == "BEAR_TREND"
 
@@ -129,3 +132,4 @@ def test_research_router_exports_json_and_csv(tmp_path: Path) -> None:
     assert len(rows) == 1
     assert rows[0]["order_id"] == "short-bear"
     assert rows[0]["entry_market_regime"] == "BEAR_TREND"
+    assert rows[0]["data_origin"] == "production"
