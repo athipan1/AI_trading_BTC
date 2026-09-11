@@ -71,6 +71,11 @@ class HistoricalStrategyReplay:
         mfe_r = mfe / risk if risk > 0 else None
         mae_r = mae / risk if risk > 0 else None
         capture = realized_r / mfe_r if mfe_r and mfe_r > 0 else None
+        profit_giveback_r = (
+            mfe_r - realized_r
+            if mfe_r is not None and realized_r is not None
+            else None
+        )
         return {
             **trade,
             "status": "CLOSED",
@@ -89,7 +94,7 @@ class HistoricalStrategyReplay:
             "mae_r": mae_r,
             "mfe_r": mfe_r,
             "mfe_capture_ratio": capture,
-            "profit_giveback_r": (mfe_r - realized_r) if mfe_r is not None and realized_r is not None else None,
+            "profit_giveback_r": profit_giveback_r,
             "mae_utilization_r": mae_r,
             "holding_seconds": (candle.timestamp_ms - int(trade["opened_at_ms"])) / 1000,
         }
@@ -105,14 +110,27 @@ class HistoricalStrategyReplay:
             next_candle = candles[index + 1]
             signal = strategy.analyze(history, self.config.symbol, self.config.timeframe)
             if active is not None:
-                active["trade_path_highest_price"] = max(float(active["trade_path_highest_price"]), decision_candle.high)
-                active["trade_path_lowest_price"] = min(float(active["trade_path_lowest_price"]), decision_candle.low)
-                active["trade_path_observation_count"] = int(active["trade_path_observation_count"]) + 1
+                active["trade_path_highest_price"] = max(
+                    float(active["trade_path_highest_price"]), decision_candle.high
+                )
+                active["trade_path_lowest_price"] = min(
+                    float(active["trade_path_lowest_price"]), decision_candle.low
+                )
+                active["trade_path_observation_count"] = (
+                    int(active["trade_path_observation_count"]) + 1
+                )
                 if signal.action == TradeAction.EXIT:
-                    trades.append(self._close_trade(active, next_candle, exit_reason="STRATEGY_EXIT"))
+                    trades.append(
+                        self._close_trade(active, next_candle, exit_reason="STRATEGY_EXIT")
+                    )
                     active = None
                 continue
-            entry_side = "buy" if signal.action == TradeAction.BUY else "sell" if signal.action == TradeAction.SHORT else None
+            if signal.action == TradeAction.BUY:
+                entry_side = "buy"
+            elif signal.action == TradeAction.SHORT:
+                entry_side = "sell"
+            else:
+                entry_side = None
             if entry_side is None or signal.stop_loss is None:
                 continue
             entry_fill = self._fill_price(next_candle.open, entry_side)
