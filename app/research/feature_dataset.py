@@ -4,13 +4,13 @@ import math
 from collections import Counter
 from typing import Any
 
-from app.research.trade_dataset import ResearchTradeDatasetProjection
+from app.research.trade_dataset import ResearchSource, ResearchTradeDatasetProjection
 
 
 class ResearchFeatureDatasetProjection:
-    """Build leakage-controlled model features from Phase 4.8 research rows."""
+    """Build leakage-controlled model features from canonical research trade rows."""
 
-    SCHEMA_VERSION = "research_feature_schema_v1"
+    SCHEMA_VERSION = "research_feature_schema_v2"
     SOURCE_SCHEMA_VERSION = ResearchTradeDatasetProjection.SCHEMA_VERSION
     MIN_TRAINING_SAMPLES = 30
     MIN_FEATURE_COVERAGE_PCT = 95.0
@@ -49,6 +49,7 @@ class ResearchFeatureDatasetProjection:
             "trade_path_highest_price",
             "trade_path_lowest_price",
             "trade_path_observation_count",
+            "data_origin",
         }
     )
 
@@ -117,6 +118,7 @@ class ResearchFeatureDatasetProjection:
         targets = {name: row.get(name) for name in cls.TARGETS}
         return {
             "order_id": row.get("order_id"),
+            "data_origin": row.get("data_origin"),
             "feature_available_at": row.get("opened_at"),
             "features": features,
             "targets": targets,
@@ -127,21 +129,25 @@ class ResearchFeatureDatasetProjection:
         cls,
         positions: list[dict[str, Any]],
         *,
+        historical_trades: list[dict[str, Any]] | None = None,
+        source: ResearchSource = "production",
         strategy_id: str | None = None,
         regime: str | None = None,
     ) -> dict[str, Any]:
-        source = ResearchTradeDatasetProjection.build(
+        trade_dataset = ResearchTradeDatasetProjection.build(
             positions,
+            historical_trades=historical_trades,
+            source=source,
             strategy_id=strategy_id,
             regime=regime,
         )
-        rows = [cls._feature_row(row) for row in source["rows"]]
+        rows = [cls._feature_row(row) for row in trade_dataset["rows"]]
         return {
             "schema_version": cls.SCHEMA_VERSION,
             "source_schema_version": cls.SOURCE_SCHEMA_VERSION,
-            "basis": "phase48_qualified_trade_rows",
+            "basis": "canonical_research_trade_rows",
             "read_only": True,
-            "filters": source["filters"],
+            "filters": trade_dataset["filters"],
             "feature_contract": {
                 "categorical": list(cls.CATEGORICAL_FEATURES),
                 "numeric": list(cls.NUMERIC_FEATURES),
@@ -157,10 +163,18 @@ class ResearchFeatureDatasetProjection:
         cls,
         positions: list[dict[str, Any]],
         *,
+        historical_trades: list[dict[str, Any]] | None = None,
+        source: ResearchSource = "production",
         strategy_id: str | None = None,
         regime: str | None = None,
     ) -> dict[str, Any]:
-        dataset = cls.build(positions, strategy_id=strategy_id, regime=regime)
+        dataset = cls.build(
+            positions,
+            historical_trades=historical_trades,
+            source=source,
+            strategy_id=strategy_id,
+            regime=regime,
+        )
         rows = dataset["rows"]
         sample_size = len(rows)
         leakage = cls.validate_feature_names(list(cls.MODEL_FEATURES))
@@ -197,6 +211,7 @@ class ResearchFeatureDatasetProjection:
         return {
             "schema_version": cls.SCHEMA_VERSION,
             "source_schema_version": cls.SOURCE_SCHEMA_VERSION,
+            "filters": dataset["filters"],
             "sample_size": sample_size,
             "quality": {
                 "feature_coverage_pct": coverage,
@@ -220,13 +235,24 @@ class ResearchFeatureDatasetProjection:
         cls,
         positions: list[dict[str, Any]],
         *,
+        historical_trades: list[dict[str, Any]] | None = None,
+        source: ResearchSource = "production",
         strategy_id: str | None = None,
         regime: str | None = None,
     ) -> dict[str, Any]:
-        dataset = cls.build(positions, strategy_id=strategy_id, regime=regime)
+        dataset = cls.build(
+            positions,
+            historical_trades=historical_trades,
+            source=source,
+            strategy_id=strategy_id,
+            regime=regime,
+        )
         rows = sorted(
             dataset["rows"],
-            key=lambda row: (str(row.get("feature_available_at") or ""), str(row.get("order_id") or "")),
+            key=lambda row: (
+                str(row.get("feature_available_at") or ""),
+                str(row.get("order_id") or ""),
+            ),
         )
         total = len(rows)
         train_end = int(total * 0.70)
@@ -240,6 +266,7 @@ class ResearchFeatureDatasetProjection:
 
         return {
             "schema_version": cls.SCHEMA_VERSION,
+            "filters": dataset["filters"],
             "method": "chronological_holdout",
             "random_shuffle": False,
             "ratios": {"train": 0.70, "validation": 0.15, "test": 0.15},
