@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     hermes3d_validation_simulator_enabled: bool = False
 
     research_historical_trade_store: str = "state/research/historical-trades.json"
+    research_historical_diagnostics_report: str = "state/research/historical-diagnostics.json"
 
     phase41_validation_trade_enabled: bool = False
     phase41_validation_position_store: str = "state/phase41-validation-positions.json"

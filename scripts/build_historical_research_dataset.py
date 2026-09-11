@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 from datetime import UTC, datetime
+from pathlib import Path
 
 from app.config import get_settings
+from app.research.historical_diagnostics import HistoricalDatasetDiagnostics
 from app.research.historical_market_data import HistoricalMarketDataService
 from app.research.historical_replay import (
     HistoricalReplayConfig,
@@ -31,7 +34,7 @@ def _git_commit() -> str | None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build persistent historical BTC research trades")
-    parser.add_argument("--since", required=True, help="UTC date, for example 2026-07-01")
+    parser.add_argument("--since", required=True, help="UTC date, for example 2021-01-01")
     parser.add_argument("--until", required=True, help="UTC exclusive end date")
     parser.add_argument("--symbol", default=None)
     parser.add_argument("--timeframe", default=None)
@@ -39,6 +42,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fee-rate", type=float, default=0.001)
     parser.add_argument("--slippage-bps", type=float, default=2.0)
     parser.add_argument("--store", default=None)
+    parser.add_argument(
+        "--report",
+        default="state/research/historical-diagnostics.json",
+        help="JSON diagnostics report path",
+    )
+    parser.add_argument(
+        "--fail-on-gaps",
+        action="store_true",
+        help="fail after diagnostics when candle gaps or timestamp anomalies are detected",
+    )
     return parser.parse_args()
 
 
@@ -91,9 +104,51 @@ def main() -> None:
             f"updated={result['updated']} store_total={result['total']}"
         )
 
+    stored_trades = store.load()
+    diagnostics = HistoricalDatasetDiagnostics.build(
+        candles=candles,
+        trades=stored_trades,
+        timeframe=timeframe,
+    )
+    report_path = Path(args.report)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
+        json.dumps(diagnostics, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    continuity = diagnostics["candle_continuity"]
+    coverage = diagnostics["trade_coverage"]
+    quality = diagnostics["feature_quality"]
+    split = diagnostics["temporal_split"]
+
     print(f"Total closed replay trades: {total_closed}")
     print(f"Historical research store: {store_path}")
+    print(f"Diagnostics report: {report_path}")
+    print(
+        "Candle continuity: "
+        f"{continuity['status']} gaps={continuity['gap_count']} "
+        f"missing_intervals={continuity['missing_intervals']} "
+        f"duplicates={continuity['duplicate_timestamps']} "
+        f"out_of_order={continuity['out_of_order_timestamps']}"
+    )
+    print(f"Trade sample size: {coverage['sample_size']}")
+    print(f"Trades by strategy: {coverage['strategies']}")
+    print(f"Trades by regime: {coverage['market_regimes']}")
+    print(f"Trades by year: {coverage['years']}")
+    print(
+        "Dataset readiness: "
+        f"{quality['readiness']['dataset']} training={quality['readiness']['training']} "
+        f"coverage={quality['quality']['feature_coverage_pct']}%"
+    )
+    print(
+        "Chronological split: "
+        f"{split['counts']} readiness={split['readiness']} random_shuffle={split['random_shuffle']}"
+    )
     print("Production PositionStore mutated: False")
+
+    if args.fail_on_gaps and continuity["status"] != "PASS":
+        raise RuntimeError("historical candle continuity check failed")
 
 
 if __name__ == "__main__":
