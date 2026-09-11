@@ -51,6 +51,7 @@ def test_feature_contract_keeps_outcome_fields_out_of_model_features() -> None:
     assert "entry_market_regime" in contract["model_features"]
     assert "realized_r" not in contract["model_features"]
     assert "mfe_r" not in contract["model_features"]
+    assert "data_origin" not in contract["model_features"]
     assert result["rows"][0]["features"]["side_direction"] == -1.0
     assert result["rows"][0]["features"]["entry_stop_distance_pct"] == 10.0
 
@@ -106,6 +107,6 @@ def test_research_router_exposes_phase49_endpoints(tmp_path: Path) -> None:
     assert features.status_code == 200
     assert quality.status_code == 200
     assert split.status_code == 200
-    assert features.json()["schema_version"] == "research_feature_schema_v1"
+    assert features.json()["schema_version"] == "research_feature_schema_v2"
     assert quality.json()["readiness"]["training"] == "NOT_READY"
     assert split.json()["random_shuffle"] is False
