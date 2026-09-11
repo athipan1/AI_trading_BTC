@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import Response
 
 from app.monitoring.position_store import PositionStore
+from app.research.feature_dataset import ResearchFeatureDatasetProjection
 from app.research.trade_dataset import ResearchTradeDatasetProjection
 
 
@@ -54,6 +55,39 @@ def build_research_router(
                     f'attachment; filename="{ResearchTradeDatasetProjection.SCHEMA_VERSION}.csv"'
                 )
             },
+        )
+
+    @router.get("/features")
+    def research_features(
+        strategy: str | None = Query(default=None),
+        regime: str | None = Query(default=None),
+    ) -> dict[str, object]:
+        return ResearchFeatureDatasetProjection.build(
+            positions(),
+            strategy_id=strategy,
+            regime=regime,
+        )
+
+    @router.get("/dataset-quality")
+    def research_dataset_quality(
+        strategy: str | None = Query(default=None),
+        regime: str | None = Query(default=None),
+    ) -> dict[str, object]:
+        return ResearchFeatureDatasetProjection.quality(
+            positions(),
+            strategy_id=strategy,
+            regime=regime,
+        )
+
+    @router.get("/dataset-split")
+    def research_dataset_split(
+        strategy: str | None = Query(default=None),
+        regime: str | None = Query(default=None),
+    ) -> dict[str, object]:
+        return ResearchFeatureDatasetProjection.temporal_split(
+            positions(),
+            strategy_id=strategy,
+            regime=regime,
         )
 
     return router
