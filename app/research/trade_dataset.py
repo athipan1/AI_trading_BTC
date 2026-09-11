@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from app.integrations.hermes3d.production_analytics_readiness import (
     ProductionAnalyticsReadinessProjection,
@@ -10,12 +10,14 @@ from app.integrations.hermes3d.production_analytics_readiness import (
 from app.integrations.hermes3d.quant_performance import QuantPerformanceProjection
 from app.integrations.hermes3d.trade_efficiency import TradeEfficiencyProjection
 
+ResearchSource = Literal["production", "historical", "combined"]
+
 
 class ResearchTradeDatasetProjection:
-    """Build a versioned, read-only research dataset from qualified production trades."""
+    """Build a versioned research dataset from production and/or historical trades."""
 
-    SCHEMA_VERSION = "research_trade_schema_v1"
-    BASIS = "phase47_qualified_reconciled_closed_trades"
+    SCHEMA_VERSION = "research_trade_schema_v2"
+    BASIS = "qualified_production_and_historical_replay_trades"
 
     METADATA_COLUMNS = (
         "order_id",
@@ -25,6 +27,7 @@ class ResearchTradeDatasetProjection:
         "opened_at",
         "closed_at",
         "exit_reason",
+        "data_origin",
     )
     FEATURE_COLUMNS = (
         "entry_price",
@@ -91,7 +94,7 @@ class ResearchTradeDatasetProjection:
         return failures
 
     @classmethod
-    def _row(cls, item: dict[str, Any]) -> dict[str, Any]:
+    def _production_row(cls, item: dict[str, Any]) -> dict[str, Any]:
         path = QuantPerformanceProjection._path_excursion(item)
         efficiency = TradeEfficiencyProjection._trade_efficiency(item)
         risk, used_fallback = QuantPerformanceProjection._initial_risk_usdt(item)
@@ -117,23 +120,18 @@ class ResearchTradeDatasetProjection:
             "opened_at": item.get("created_at"),
             "closed_at": item.get("closed_at"),
             "exit_reason": item.get("exit_reason"),
+            "data_origin": "production",
             "entry_price": QuantPerformanceProjection._float(item.get("entry_price")),
-            "entry_fill_price": QuantPerformanceProjection._float(
-                item.get("entry_fill_price")
-            ),
+            "entry_fill_price": QuantPerformanceProjection._float(item.get("entry_fill_price")),
             "quantity": quantity,
-            "initial_stop_loss": QuantPerformanceProjection._float(
-                item.get("initial_stop_loss")
-            ),
+            "initial_stop_loss": QuantPerformanceProjection._float(item.get("initial_stop_loss")),
             "initial_risk_price_distance": QuantPerformanceProjection._float(
                 item.get("initial_risk_price_distance")
             ),
             "initial_risk_usdt": risk,
             "entry_market_regime": item.get("entry_market_regime"),
             "exit_price": QuantPerformanceProjection._float(item.get("exit_price")),
-            "exit_fill_price": QuantPerformanceProjection._float(
-                item.get("exit_fill_price")
-            ),
+            "exit_fill_price": QuantPerformanceProjection._float(item.get("exit_fill_price")),
             "holding_seconds": QuantPerformanceProjection._holding_seconds(item),
             "trade_path_highest_price": QuantPerformanceProjection._float(
                 item.get("trade_path_highest_price")
@@ -141,19 +139,13 @@ class ResearchTradeDatasetProjection:
             "trade_path_lowest_price": QuantPerformanceProjection._float(
                 item.get("trade_path_lowest_price")
             ),
-            "trade_path_observation_count": int(
-                item.get("trade_path_observation_count") or 0
-            ),
+            "trade_path_observation_count": int(item.get("trade_path_observation_count") or 0),
             "mae_usdt": path["mae_usdt"],
             "mfe_usdt": path["mfe_usdt"],
             "mae_r": path["mae_r"],
             "mfe_r": path["mfe_r"],
-            "gross_realized_pnl": QuantPerformanceProjection._float(
-                item.get("gross_realized_pnl")
-            ),
-            "net_realized_pnl": QuantPerformanceProjection._float(
-                item.get("net_realized_pnl")
-            ),
+            "gross_realized_pnl": QuantPerformanceProjection._float(item.get("gross_realized_pnl")),
+            "net_realized_pnl": QuantPerformanceProjection._float(item.get("net_realized_pnl")),
             "realized_r": efficiency["realized_r"],
             "entry_commission_usdt": entry_fee,
             "exit_commission_usdt": exit_fee,
@@ -166,35 +158,150 @@ class ResearchTradeDatasetProjection:
         }
 
     @classmethod
+    def _historical_failures(cls, item: dict[str, Any]) -> list[str]:
+        failures: list[str] = []
+        if str(item.get("status", "")).upper() != "CLOSED":
+            failures.append("NOT_CLOSED")
+        for field in (
+            "entry_fill_price",
+            "exit_fill_price",
+            "quantity",
+            "initial_stop_loss",
+            "initial_risk_price_distance",
+            "initial_risk_usdt",
+            "trade_path_highest_price",
+            "trade_path_lowest_price",
+            "holding_seconds",
+        ):
+            if QuantPerformanceProjection._float(item.get(field)) is None:
+                failures.append(f"MISSING_{field.upper()}")
+        if not item.get("entry_market_regime"):
+            failures.append("MISSING_ENTRY_MARKET_REGIME")
+        return failures
+
+    @classmethod
+    def _historical_row(cls, item: dict[str, Any]) -> dict[str, Any]:
+        quantity = QuantPerformanceProjection._float(item.get("quantity"))
+        entry_price = QuantPerformanceProjection._float(item.get("entry_price"))
+        entry_fill = QuantPerformanceProjection._float(item.get("entry_fill_price"))
+        exit_price = QuantPerformanceProjection._float(item.get("exit_price"))
+        exit_fill = QuantPerformanceProjection._float(item.get("exit_fill_price"))
+        slippage = None
+        if None not in (quantity, entry_price, entry_fill, exit_price, exit_fill):
+            assert quantity is not None
+            assert entry_price is not None
+            assert entry_fill is not None
+            assert exit_price is not None
+            assert exit_fill is not None
+            slippage = quantity * (abs(entry_fill - entry_price) + abs(exit_fill - exit_price))
+
+        return {
+            "order_id": str(item.get("order_id", "")),
+            "strategy_id": str(item.get("strategy_id", "baseline")).lower(),
+            "symbol": str(item.get("symbol", "")).upper(),
+            "side": str(item.get("side", "")).lower(),
+            "opened_at": item.get("created_at"),
+            "closed_at": item.get("closed_at"),
+            "exit_reason": item.get("exit_reason"),
+            "data_origin": "historical_replay",
+            "entry_price": entry_price,
+            "entry_fill_price": entry_fill,
+            "quantity": quantity,
+            "initial_stop_loss": QuantPerformanceProjection._float(item.get("initial_stop_loss")),
+            "initial_risk_price_distance": QuantPerformanceProjection._float(
+                item.get("initial_risk_price_distance")
+            ),
+            "initial_risk_usdt": QuantPerformanceProjection._float(item.get("initial_risk_usdt")),
+            "entry_market_regime": item.get("entry_market_regime"),
+            "exit_price": exit_price,
+            "exit_fill_price": exit_fill,
+            "holding_seconds": QuantPerformanceProjection._float(item.get("holding_seconds")),
+            "trade_path_highest_price": QuantPerformanceProjection._float(
+                item.get("trade_path_highest_price")
+            ),
+            "trade_path_lowest_price": QuantPerformanceProjection._float(
+                item.get("trade_path_lowest_price")
+            ),
+            "trade_path_observation_count": int(item.get("trade_path_observation_count") or 0),
+            "mae_usdt": QuantPerformanceProjection._float(item.get("mae_usdt")),
+            "mfe_usdt": QuantPerformanceProjection._float(item.get("mfe_usdt")),
+            "mae_r": QuantPerformanceProjection._float(item.get("mae_r")),
+            "mfe_r": QuantPerformanceProjection._float(item.get("mfe_r")),
+            "gross_realized_pnl": QuantPerformanceProjection._float(item.get("gross_realized_pnl")),
+            "net_realized_pnl": QuantPerformanceProjection._float(item.get("net_realized_pnl")),
+            "realized_r": QuantPerformanceProjection._float(item.get("realized_r")),
+            "entry_commission_usdt": QuantPerformanceProjection._float(
+                item.get("entry_commission_usdt")
+            ),
+            "exit_commission_usdt": QuantPerformanceProjection._float(item.get("exit_commission_usdt")),
+            "total_commission_usdt": QuantPerformanceProjection._float(
+                item.get("total_commission_usdt")
+            ),
+            "slippage_cost_usdt": slippage,
+            "mfe_capture_ratio": QuantPerformanceProjection._float(item.get("mfe_capture_ratio")),
+            "profit_giveback_r": QuantPerformanceProjection._float(item.get("profit_giveback_r")),
+            "mae_utilization_r": QuantPerformanceProjection._float(item.get("mae_utilization_r")),
+            "trade_diagnostic": item.get("trade_diagnostic"),
+        }
+
+    @classmethod
     def build(
         cls,
         positions: list[dict[str, Any]],
         *,
+        historical_trades: list[dict[str, Any]] | None = None,
+        source: ResearchSource = "production",
         strategy_id: str | None = None,
         regime: str | None = None,
     ) -> dict[str, Any]:
         normalized_strategy = strategy_id.strip().lower() if strategy_id else None
         normalized_regime = regime.strip().upper() if regime else None
-        candidates = [
-            item
-            for item in positions
-            if cls._matches_filters(
-                item,
-                strategy_id=normalized_strategy,
-                regime=normalized_regime,
-            )
-        ]
+        historical = historical_trades or []
+
+        production_candidates = (
+            [
+                item
+                for item in positions
+                if cls._matches_filters(
+                    item,
+                    strategy_id=normalized_strategy,
+                    regime=normalized_regime,
+                )
+            ]
+            if source in {"production", "combined"}
+            else []
+        )
+        historical_candidates = (
+            [
+                item
+                for item in historical
+                if cls._matches_filters(
+                    item,
+                    strategy_id=normalized_strategy,
+                    regime=normalized_regime,
+                )
+            ]
+            if source in {"historical", "combined"}
+            else []
+        )
 
         rows: list[dict[str, Any]] = []
         exclusions: Counter[str] = Counter()
-        for item in candidates:
+        for item in production_candidates:
             failures = ProductionAnalyticsReadinessProjection.qualification_failures(item)
             if not failures:
                 failures = cls._row_validation_failures(item)
             if failures:
                 exclusions.update(failures)
                 continue
-            rows.append(cls._row(item))
+            rows.append(cls._production_row(item))
+
+        for item in historical_candidates:
+            failures = cls._historical_failures(item)
+            if failures:
+                exclusions.update(failures)
+                continue
+            rows.append(cls._historical_row(item))
 
         rows.sort(
             key=lambda row: (
@@ -204,13 +311,16 @@ class ResearchTradeDatasetProjection:
         )
         strategies = sorted({str(row["strategy_id"]) for row in rows})
         regimes = sorted({str(row["entry_market_regime"]) for row in rows})
+        origins = sorted({str(row["data_origin"]) for row in rows})
 
+        total_candidates = len(production_candidates) + len(historical_candidates)
         return {
             "schema_version": cls.SCHEMA_VERSION,
             "generated_at": cls._now(),
             "basis": cls.BASIS,
             "read_only": True,
             "filters": {
+                "source": source,
                 "strategy_id": normalized_strategy,
                 "entry_market_regime": normalized_regime,
             },
@@ -222,12 +332,14 @@ class ResearchTradeDatasetProjection:
             },
             "metadata": {
                 "source_positions": len(positions),
-                "filtered_candidates": len(candidates),
+                "source_historical_trades": len(historical),
+                "filtered_candidates": total_candidates,
                 "qualified_trades": len(rows),
-                "excluded_candidates": len(candidates) - len(rows),
+                "excluded_candidates": total_candidates - len(rows),
                 "exclusion_reason_counts": dict(sorted(exclusions.items())),
                 "strategies": strategies,
                 "market_regimes": regimes,
+                "data_origins": origins,
             },
             "rows": rows,
         }
