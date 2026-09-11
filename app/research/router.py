@@ -16,7 +16,7 @@ def build_research_router(
     *,
     spot_position_store: PositionStore,
     futures_position_store: PositionStore,
-    historical_trade_store: HistoricalResearchStore,
+    historical_trade_store: HistoricalResearchStore | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/research", tags=["research"])
 
@@ -24,6 +24,8 @@ def build_research_router(
         return spot_position_store.load() + futures_position_store.load()
 
     def historical_trades() -> list[dict[str, object]]:
+        if historical_trade_store is None:
+            return []
         return historical_trade_store.load()
 
     @router.get("/trades")
