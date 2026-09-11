@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+
 from app.models import Candle, MarketRegime, TradeAction, TradeSignal
+from app.research.historical_market_data import HistoricalMarketDataService
 from app.research.historical_replay import HistoricalReplayConfig, HistoricalStrategyReplay
 
 
@@ -38,6 +41,35 @@ class StubStrategy:
         )
 
 
+class StubExchange:
+    def __init__(self, rows: list[list[Any]]) -> None:
+        self.rows = rows
+        self.closed = False
+
+    def fetch_ohlcv(
+        self,
+        symbol: str,
+        *,
+        timeframe: str,
+        since: int,
+        limit: int,
+    ) -> list[list[Any]]:
+        del symbol, timeframe, since, limit
+        return self.rows
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class StubHistoricalMarketDataService(HistoricalMarketDataService):
+    def __init__(self, exchange: StubExchange) -> None:
+        super().__init__()
+        self.exchange = exchange
+
+    def _build_exchange(self) -> StubExchange:
+        return self.exchange
+
+
 def candle(index: int, price: float) -> Candle:
     return Candle(
         timestamp_ms=index * 3_600_000,
@@ -47,6 +79,27 @@ def candle(index: int, price: float) -> Candle:
         close=price,
         volume=1,
     )
+
+
+def test_historical_fetch_range_accepts_multiple_ordered_candles() -> None:
+    rows = [
+        [3_600_000, 100, 105, 95, 101, 1],
+        [7_200_000, 101, 106, 96, 102, 1],
+        [10_800_000, 102, 107, 97, 103, 1],
+    ]
+    exchange = StubExchange(rows)
+    service = StubHistoricalMarketDataService(exchange)
+
+    result = service.fetch_range(
+        "BTC/USDT",
+        "1h",
+        since_ms=0,
+        until_ms=14_400_000,
+        page_limit=1000,
+    )
+
+    assert [item.timestamp_ms for item in result] == [3_600_000, 7_200_000, 10_800_000]
+    assert exchange.closed is True
 
 
 def test_replay_uses_next_candle_fill_and_isolated_store() -> None:
