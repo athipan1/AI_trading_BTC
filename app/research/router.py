@@ -8,6 +8,7 @@ from fastapi.responses import Response
 
 from app.monitoring.position_store import PositionStore
 from app.research.feature_dataset import ResearchFeatureDatasetProjection
+from app.research.historical_report import HistoricalDiagnosticsReport
 from app.research.historical_store import HistoricalResearchStore
 from app.research.trade_dataset import ResearchSource, ResearchTradeDatasetProjection
 
@@ -17,6 +18,7 @@ def build_research_router(
     spot_position_store: PositionStore,
     futures_position_store: PositionStore,
     historical_trade_store: HistoricalResearchStore | None = None,
+    historical_diagnostics_report: HistoricalDiagnosticsReport | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/research", tags=["research"])
 
@@ -111,5 +113,14 @@ def build_research_router(
             strategy_id=strategy,
             regime=regime,
         )
+
+    @router.get("/historical-diagnostics")
+    def historical_diagnostics() -> dict[str, object]:
+        if historical_diagnostics_report is None:
+            return {
+                "schema_version": "historical_dataset_diagnostics_v1",
+                "status": "NOT_CONFIGURED",
+            }
+        return historical_diagnostics_report.load()
 
     return router
