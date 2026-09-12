@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from app.models import Candle, MarketRegime, TradeAction, TradeSignal
 from app.research.historical_market_data import HistoricalMarketDataService
-from app.research.historical_replay import HistoricalReplayConfig, HistoricalStrategyReplay
+from app.research.historical_replay import (
+    HistoricalReplayConfig,
+    HistoricalStrategyReplay,
+)
 
 
 HOUR_MS = 3_600_000
