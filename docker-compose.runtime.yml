@@ -1,0 +1,62 @@
+services:
+  btc-trader:
+    restart: unless-stopped
+    environment:
+      HERMES3D_SPOT_POSITION_STORE: state/binance-testnet-positions.json
+      HERMES3D_FUTURES_POSITION_STORE: state/binance-futures-testnet-short-positions.json
+      HERMES3D_BASELINE_STATE_STORE: state/binance-testnet-auto-baseline.json
+      HERMES3D_TRIPLE_EMA_STATE_STORE: state/binance-testnet-auto-triple-ema.json
+      HERMES3D_FUTURES_SHORT_STATE_STORE: state/binance-futures-testnet-short-auto.json
+      HERMES3D_EVENT_JOURNAL: state/hermes3d-events.jsonl
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  spot-auto:
+    build: .
+    env_file:
+      - .env
+    command:
+      - python
+      - scripts/run_binance_testnet_auto.py
+      - --watch
+      - --confirm
+      - BINANCE_TESTNET_AUTO
+    volumes:
+      - ./state:/app/state
+    restart: unless-stopped
+
+  futures-short:
+    build: .
+    env_file:
+      - .env
+    command:
+      - python
+      - scripts/run_binance_futures_testnet_short.py
+      - --watch
+      - --confirm
+      - BINANCE_FUTURES_TESTNET_SHORT
+    volumes:
+      - ./state:/app/state
+    restart: unless-stopped
+
+  spot-monitor:
+    build: .
+    env_file:
+      - .env
+    command:
+      - python
+      - scripts/monitor_binance_testnet_positions.py
+      - --watch
+      - --interval-seconds
+      - "${BTC_TESTNET_MONITOR_INTERVAL_SECONDS:-30}"
+    volumes:
+      - ./state:/app/state
+    restart: unless-stopped
