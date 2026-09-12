@@ -8,7 +8,7 @@ from pathlib import Path
 
 from app.auto_trading.engine import TestnetAutoTrader
 from app.auto_trading.state_store import AutoTradeStateStore, AutoTradingHalted
-from app.execution.binance_testnet import BinanceTestnetBroker
+from app.execution.binance_testnet_hybrid import BinanceSpotTestnetHybridBroker
 from app.integrations.hermes3d.journal import Hermes3DEventJournal
 from app.monitoring.binance_fill_reconciler import BinanceSpotFillSource, PositionFillReconciler
 from app.monitoring.position_store import PositionStore
@@ -92,7 +92,7 @@ def build_traders(args: argparse.Namespace) -> list[TestnetAutoTrader]:
             "for Triple EMA strategy"
         )
 
-    broker = BinanceTestnetBroker(
+    broker = BinanceSpotTestnetHybridBroker(
         api_key=api_key,
         api_secret=api_secret,
         max_order_notional_usdt=max_notional,
@@ -165,6 +165,8 @@ def main() -> None:
                     "🤖 Binance Spot Testnet Multi-Strategy Auto Trading เริ่มทำงาน",
                     f"คู่: {primary.symbol}",
                     f"Timeframe: {primary.timeframe}",
+                    "Market data: Binance Public Spot (read-only)",
+                    "Execution: Binance Spot Testnet",
                     "Strategies: BASELINE + TRIPLE_EMA",
                     f"Baseline entry cap: {traders[0].entry_notional_usdt:.2f} USDT",
                     f"Triple EMA entry cap: {traders[1].entry_notional_usdt:.2f} USDT",
