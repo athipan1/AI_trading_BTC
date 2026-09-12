@@ -22,6 +22,27 @@ class HistoricalMarketDataService(MarketDataService):
         return int(match.group("count")) * cls._UNIT_MS[match.group("unit")]
 
     @classmethod
+    def contiguous_segments(
+        cls,
+        candles: list[Candle],
+        *,
+        timeframe: str,
+    ) -> list[list[Candle]]:
+        """Split ordered candles at source-data gaps without synthesizing bars."""
+        if not candles:
+            return []
+        interval_ms = cls.timeframe_ms(timeframe)
+        segments: list[list[Candle]] = [[candles[0]]]
+        for previous, current in zip(candles, candles[1:], strict=False):
+            delta = int(current.timestamp_ms) - int(previous.timestamp_ms)
+            if delta <= 0:
+                raise MarketDataError("historical timestamps are not strictly increasing")
+            if delta != interval_ms:
+                segments.append([])
+            segments[-1].append(current)
+        return segments
+
+    @classmethod
     def integrity_report(
         cls,
         candles: list[Candle],
@@ -55,6 +76,12 @@ class HistoricalMarketDataService(MarketDataService):
             and not missing
             and strict_ordering
         )
+        segment_replay_safe = (
+            bool(timestamps)
+            and first_actual == first_expected
+            and last_actual == last_expected
+            and strict_ordering
+        )
         return {
             "timeframe": timeframe,
             "interval_ms": interval_ms,
@@ -75,6 +102,7 @@ class HistoricalMarketDataService(MarketDataService):
             "missing_interval_timestamps_ms": missing[:100],
             "missing_interval_list_truncated": len(missing) > 100,
             "complete_range": complete_range,
+            "segment_replay_safe": segment_replay_safe,
         }
 
     def fetch_range(
