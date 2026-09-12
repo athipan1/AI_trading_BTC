@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from statistics import pstdev
+import statistics
 from typing import Final
 
 from app.features.indicators import atr, ema, rsi
@@ -69,7 +69,7 @@ def _rolling_log_volatility(closes: list[float], lookback: int = 24) -> float | 
     log_returns = [math.log(window[index] / window[index - 1]) for index in range(1, len(window))]
     if not log_returns:
         return None
-    value = pstdev(log_returns)
+    value = statistics.pstdev(log_returns)
     return value if math.isfinite(value) else None
 
 
@@ -90,7 +90,7 @@ def build_entry_time_features(candles: list[Candle]) -> dict[str, float | None]:
 
     volume_window = volumes[-20:]
     volume_mean = sum(volume_window) / len(volume_window)
-    volume_std = pstdev(volume_window)
+    volume_std = statistics.pstdev(volume_window)
     volume_ratio = _safe_div(decision.volume, volume_mean)
     volume_zscore = _safe_div(decision.volume - volume_mean, volume_std) if volume_std > 0 else 0.0
 
