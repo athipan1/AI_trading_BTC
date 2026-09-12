@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 from datetime import UTC, datetime
 
 from app.config import get_settings
+from app.research.feature_dataset import ResearchFeatureDatasetProjection
+from app.research.historical_diagnostics import HistoricalResearchDiagnostics
 from app.research.historical_market_data import HistoricalMarketDataService
 from app.research.historical_replay import (
     HistoricalReplayConfig,
@@ -31,7 +34,7 @@ def _git_commit() -> str | None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build persistent historical BTC research trades")
-    parser.add_argument("--since", required=True, help="UTC date, for example 2026-07-01")
+    parser.add_argument("--since", required=True, help="UTC date, for example 2021-01-01")
     parser.add_argument("--until", required=True, help="UTC exclusive end date")
     parser.add_argument("--symbol", default=None)
     parser.add_argument("--timeframe", default=None)
@@ -39,6 +42,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fee-rate", type=float, default=0.001)
     parser.add_argument("--slippage-bps", type=float, default=2.0)
     parser.add_argument("--store", default=None)
+    parser.add_argument(
+        "--require-complete-range",
+        action="store_true",
+        help="Fail when the requested OHLCV range contains gaps or partial coverage",
+    )
     return parser.parse_args()
 
 
@@ -60,6 +68,17 @@ def main() -> None:
         since_ms=since_ms,
         until_ms=until_ms,
     )
+    integrity = service.integrity_report(
+        candles,
+        timeframe=timeframe,
+        since_ms=since_ms,
+        until_ms=until_ms,
+    )
+    print(f"Historical candles: {len(candles)}")
+    print(f"OHLCV integrity: {json.dumps(integrity, sort_keys=True)}")
+    if args.require_complete_range and not integrity["complete_range"]:
+        raise RuntimeError("historical OHLCV range failed completeness check")
+
     config = HistoricalReplayConfig(
         symbol=symbol,
         timeframe=timeframe,
@@ -75,7 +94,6 @@ def main() -> None:
         f"-fee{args.fee_rate}-slip{args.slippage_bps}"
     )
 
-    print(f"Historical candles: {len(candles)}")
     total_closed = 0
     for strategy in canonical_replay_strategies():
         replay = engine.replay(candles, strategy)
@@ -91,8 +109,20 @@ def main() -> None:
             f"updated={result['updated']} store_total={result['total']}"
         )
 
+    historical = store.load()
+    diagnostics = HistoricalResearchDiagnostics.build(historical)
+    quality = ResearchFeatureDatasetProjection.quality(
+        [], historical_trades=historical, source="historical"
+    )
+    split = ResearchFeatureDatasetProjection.temporal_split(
+        [], historical_trades=historical, source="historical"
+    )
+
     print(f"Total closed replay trades: {total_closed}")
     print(f"Historical research store: {store_path}")
+    print(f"Research diagnostics: {json.dumps(diagnostics, sort_keys=True)}")
+    print(f"Feature quality: {json.dumps(quality, sort_keys=True)}")
+    print(f"Chronological split: {json.dumps(split, sort_keys=True)}")
     print("Production PositionStore mutated: False")
 
 
