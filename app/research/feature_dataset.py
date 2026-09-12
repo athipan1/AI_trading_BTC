@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from datetime import datetime
 from typing import Any
 
+from app.research.entry_features import ADVANCED_ENTRY_NUMERIC_FEATURES, ENTRY_FEATURE_SCHEMA_VERSION
 from app.research.trade_dataset import ResearchSource, ResearchTradeDatasetProjection
 
 
@@ -20,7 +22,7 @@ class ResearchFeatureDatasetProjection:
         "side",
         "entry_market_regime",
     )
-    NUMERIC_FEATURES = (
+    BASE_NUMERIC_FEATURES = (
         "entry_price",
         "entry_fill_price",
         "quantity",
@@ -31,6 +33,9 @@ class ResearchFeatureDatasetProjection:
         "initial_risk_pct_of_notional",
         "side_direction",
     )
+    ADVANCED_NUMERIC_FEATURES = ADVANCED_ENTRY_NUMERIC_FEATURES
+    NUMERIC_FEATURES = BASE_NUMERIC_FEATURES + ADVANCED_NUMERIC_FEATURES
+    BASE_MODEL_FEATURES = CATEGORICAL_FEATURES + BASE_NUMERIC_FEATURES
     MODEL_FEATURES = CATEGORICAL_FEATURES + NUMERIC_FEATURES
     TARGETS = (
         "net_realized_pnl",
@@ -74,8 +79,24 @@ class ResearchFeatureDatasetProjection:
             return None
         return parsed if math.isfinite(parsed) else None
 
+    @staticmethod
+    def _raw_lookup(
+        positions: list[dict[str, Any]],
+        historical_trades: list[dict[str, Any]],
+    ) -> dict[tuple[str, str], dict[str, Any]]:
+        lookup: dict[tuple[str, str], dict[str, Any]] = {}
+        for item in positions:
+            lookup[("production", str(item.get("order_id", "")))] = item
+        for item in historical_trades:
+            lookup[("historical_replay", str(item.get("order_id", "")))] = item
+        return lookup
+
     @classmethod
-    def _feature_row(cls, row: dict[str, Any]) -> dict[str, Any]:
+    def _feature_row(
+        cls,
+        row: dict[str, Any],
+        raw_item: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         entry_price = cls._float(row.get("entry_price"))
         entry_fill_price = cls._float(row.get("entry_fill_price"))
         quantity = cls._float(row.get("quantity"))
@@ -101,7 +122,7 @@ class ResearchFeatureDatasetProjection:
         side = str(row.get("side", "")).lower()
         side_direction = 1.0 if side == "buy" else -1.0 if side == "sell" else None
 
-        features = {
+        features: dict[str, Any] = {
             "strategy_id": row.get("strategy_id"),
             "side": side,
             "entry_market_regime": row.get("entry_market_regime"),
@@ -115,11 +136,22 @@ class ResearchFeatureDatasetProjection:
             "initial_risk_pct_of_notional": risk_pct_of_notional,
             "side_direction": side_direction,
         }
+
+        raw = raw_item or {}
+        advanced = raw.get("entry_features")
+        advanced_map = advanced if isinstance(advanced, dict) else {}
+        for name in cls.ADVANCED_NUMERIC_FEATURES:
+            features[name] = cls._float(advanced_map.get(name))
+
+        feature_available_at = raw.get("decision_at") or row.get("opened_at")
         targets = {name: row.get(name) for name in cls.TARGETS}
         return {
             "order_id": row.get("order_id"),
             "data_origin": row.get("data_origin"),
-            "feature_available_at": row.get("opened_at"),
+            "feature_available_at": feature_available_at,
+            "decision_time": feature_available_at,
+            "execution_time": row.get("opened_at"),
+            "entry_feature_schema_version": raw.get("entry_feature_schema_version"),
             "features": features,
             "targets": targets,
         }
@@ -134,14 +166,22 @@ class ResearchFeatureDatasetProjection:
         strategy_id: str | None = None,
         regime: str | None = None,
     ) -> dict[str, Any]:
+        historical = historical_trades or []
         trade_dataset = ResearchTradeDatasetProjection.build(
             positions,
-            historical_trades=historical_trades,
+            historical_trades=historical,
             source=source,
             strategy_id=strategy_id,
             regime=regime,
         )
-        rows = [cls._feature_row(row) for row in trade_dataset["rows"]]
+        raw_lookup = cls._raw_lookup(positions, historical)
+        rows = [
+            cls._feature_row(
+                row,
+                raw_lookup.get((str(row.get("data_origin", "")), str(row.get("order_id", "")))),
+            )
+            for row in trade_dataset["rows"]
+        ]
         return {
             "schema_version": cls.SCHEMA_VERSION,
             "source_schema_version": cls.SOURCE_SCHEMA_VERSION,
@@ -150,13 +190,27 @@ class ResearchFeatureDatasetProjection:
             "filters": trade_dataset["filters"],
             "feature_contract": {
                 "categorical": list(cls.CATEGORICAL_FEATURES),
+                "base_numeric": list(cls.BASE_NUMERIC_FEATURES),
+                "advanced_numeric": list(cls.ADVANCED_NUMERIC_FEATURES),
                 "numeric": list(cls.NUMERIC_FEATURES),
+                "base_model_features": list(cls.BASE_MODEL_FEATURES),
                 "model_features": list(cls.MODEL_FEATURES),
                 "targets": list(cls.TARGETS),
-                "feature_timestamp_rule": "feature_available_at_must_not_be_after_decision_time",
+                "entry_feature_schema_version": ENTRY_FEATURE_SCHEMA_VERSION,
+                "feature_timestamp_rule": "feature_available_at_must_not_be_after_execution_time",
+                "advanced_feature_basis": "decision_candle_and_prior_candles_only",
             },
             "rows": rows,
         }
+
+    @staticmethod
+    def _parse_time(value: Any) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
 
     @classmethod
     def quality(
@@ -182,29 +236,67 @@ class ResearchFeatureDatasetProjection:
         order_ids = [str(row.get("order_id")) for row in rows]
         duplicate_count = sum(count - 1 for count in Counter(order_ids).values() if count > 1)
 
-        total_cells = sample_size * len(cls.MODEL_FEATURES)
-        populated_cells = 0
+        base_total_cells = sample_size * len(cls.BASE_MODEL_FEATURES)
+        base_populated_cells = 0
         invalid_rows = 0
+        advanced_rows = 0
+        advanced_populated_cells = 0
+        temporal_failures = 0
+
         for row in rows:
             features = row["features"]
             row_invalid = False
-            for name in cls.MODEL_FEATURES:
+            for name in cls.BASE_MODEL_FEATURES:
                 value = features.get(name)
                 if value is not None and value != "":
-                    populated_cells += 1
-                if name in cls.NUMERIC_FEATURES and value is not None:
-                    if cls._float(value) is None:
+                    base_populated_cells += 1
+                if name in cls.BASE_NUMERIC_FEATURES and value is not None and cls._float(value) is None:
+                    row_invalid = True
+
+            has_advanced = any(features.get(name) is not None for name in cls.ADVANCED_NUMERIC_FEATURES)
+            if has_advanced:
+                advanced_rows += 1
+                for name in cls.ADVANCED_NUMERIC_FEATURES:
+                    value = features.get(name)
+                    if value is not None and value != "":
+                        advanced_populated_cells += 1
+                    if value is not None and cls._float(value) is None:
                         row_invalid = True
+
+            feature_time = cls._parse_time(row.get("feature_available_at"))
+            execution_time = cls._parse_time(row.get("execution_time"))
+            if feature_time is None or execution_time is None or feature_time > execution_time:
+                temporal_failures += 1
+
             if row_invalid:
                 invalid_rows += 1
 
-        coverage = round(populated_cells / total_cells * 100, 4) if total_cells else 0.0
+        coverage = round(base_populated_cells / base_total_cells * 100, 4) if base_total_cells else 0.0
+        advanced_total_cells = advanced_rows * len(cls.ADVANCED_NUMERIC_FEATURES)
+        advanced_coverage = (
+            round(advanced_populated_cells / advanced_total_cells * 100, 4)
+            if advanced_total_cells
+            else 0.0
+        )
+        advanced_row_coverage = round(advanced_rows / sample_size * 100, 4) if sample_size else 0.0
+        temporal_status = "PASS" if temporal_failures == 0 else "FAIL"
+
+        advanced_required = advanced_rows > 0
+        advanced_ready = (
+            not advanced_required
+            or (
+                advanced_row_coverage >= cls.MIN_FEATURE_COVERAGE_PCT
+                and advanced_coverage >= cls.MIN_FEATURE_COVERAGE_PCT
+            )
+        )
         data_ready = (
             sample_size > 0
             and coverage >= cls.MIN_FEATURE_COVERAGE_PCT
             and duplicate_count == 0
             and invalid_rows == 0
             and leakage["status"] == "PASS"
+            and temporal_status == "PASS"
+            and advanced_ready
         )
         training_ready = data_ready and sample_size >= cls.MIN_TRAINING_SAMPLES
 
@@ -215,8 +307,15 @@ class ResearchFeatureDatasetProjection:
             "sample_size": sample_size,
             "quality": {
                 "feature_coverage_pct": coverage,
+                "advanced_feature_coverage_pct": advanced_coverage,
+                "advanced_feature_row_coverage_pct": advanced_row_coverage,
+                "advanced_feature_rows": advanced_rows,
                 "duplicate_order_ids": duplicate_count,
                 "invalid_rows": invalid_rows,
+                "temporal_integrity": {
+                    "status": temporal_status,
+                    "failures": temporal_failures,
+                },
                 "leakage_check": leakage,
             },
             "thresholds": {
@@ -227,6 +326,7 @@ class ResearchFeatureDatasetProjection:
                 "pipeline": "READY",
                 "dataset": "READY" if data_ready else "NOT_READY",
                 "training": "READY" if training_ready else "NOT_READY",
+                "advanced_entry_features": "READY" if advanced_ready else "NOT_READY",
             },
         }
 
