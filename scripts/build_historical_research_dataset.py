@@ -15,6 +15,7 @@ from app.research.historical_replay import (
     canonical_replay_strategies,
 )
 from app.research.historical_store import HistoricalResearchStore
+from app.research.runtime_acceptance import evaluate_phase51_runtime_acceptance
 
 
 def _ms(value: str) -> int:
@@ -54,6 +55,11 @@ def parse_args() -> argparse.Namespace:
         "--require-complete-range",
         action="store_true",
         help="Fail when the requested OHLCV range contains gaps or partial coverage",
+    )
+    parser.add_argument(
+        "--require-phase51-acceptance",
+        action="store_true",
+        help="Fail unless the persisted dataset passes the Phase 5.1 runtime acceptance gate",
     )
     return parser.parse_args()
 
@@ -150,13 +156,23 @@ def main() -> None:
     split = ResearchFeatureDatasetProjection.temporal_split(
         [], historical_trades=historical, source="historical"
     )
+    acceptance = evaluate_phase51_runtime_acceptance(
+        diagnostics=diagnostics,
+        quality=quality,
+        split=split,
+        production_position_store_mutated=False,
+    )
 
     print(f"Total closed replay trades: {total_closed}")
     print(f"Historical research store: {store_path}")
     print(f"Research diagnostics: {json.dumps(diagnostics, sort_keys=True)}")
     print(f"Feature quality: {json.dumps(quality, sort_keys=True)}")
     print(f"Chronological split: {json.dumps(split, sort_keys=True)}")
+    print(f"Phase 5.1 runtime acceptance: {json.dumps(acceptance, sort_keys=True)}")
     print("Production PositionStore mutated: False")
+
+    if args.require_phase51_acceptance and acceptance["status"] != "PASS":
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
