@@ -9,7 +9,6 @@ import numpy as np
 
 from app.research.baseline_ml import BaselineMLResearch
 from app.research.feature_dataset import ResearchFeatureDatasetProjection
-from app.research.model_rule_benchmark import ModelRuleBenchmark
 from app.research.regime_robustness import RegimeRobustnessResearch
 from app.research.walk_forward import WalkForwardConfig
 
@@ -324,9 +323,12 @@ class FrozenOOSValidationResearch:
                 >= float(global_metrics["total_realized_r"])
             ),
         }
-        validation_status = (
-            "PASS" if all(structural.values()) and all(evidence.values()) and all(performance.values()) else "FAIL"
+        validation_passed = (
+            all(structural.values())
+            and all(evidence.values())
+            and all(performance.values())
         )
+        validation_status = "PASS" if validation_passed else "FAIL"
         superiority_status = "PASS" if all(superiority.values()) else "FAIL"
 
         return {
