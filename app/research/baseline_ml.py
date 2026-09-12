@@ -53,14 +53,18 @@ class BaselineMLResearch:
 
     @classmethod
     def _target(cls, row: dict[str, Any]) -> int:
-        realized_r = cls._safe_float((row.get("targets") or {}).get("realized_r"))
+        targets = row.get("targets")
+        target_map = targets if isinstance(targets, dict) else {}
+        realized_r = cls._safe_float(target_map.get("realized_r"))
         if realized_r is None:
             raise ValueError("baseline ML requires realized_r target for every research row")
         return 1 if realized_r > 0 else 0
 
     @classmethod
     def _realized_r(cls, row: dict[str, Any]) -> float:
-        realized_r = cls._safe_float((row.get("targets") or {}).get("realized_r"))
+        targets = row.get("targets")
+        target_map = targets if isinstance(targets, dict) else {}
+        realized_r = cls._safe_float(target_map.get("realized_r"))
         if realized_r is None:
             raise ValueError("baseline ML requires realized_r target for every research row")
         return realized_r
@@ -70,10 +74,16 @@ class BaselineMLResearch:
         features = row.get("features")
         if not isinstance(features, dict):
             raise ValueError("research feature row is missing features")
-        return {name: features.get(name) for name in ResearchFeatureDatasetProjection.MODEL_FEATURES}
+        return {
+            name: features.get(name)
+            for name in ResearchFeatureDatasetProjection.MODEL_FEATURES
+        }
 
     @staticmethod
-    def _rows_by_ids(rows: list[dict[str, Any]], ids: list[str]) -> list[dict[str, Any]]:
+    def _rows_by_ids(
+        rows: list[dict[str, Any]],
+        ids: list[str],
+    ) -> list[dict[str, Any]]:
         lookup = {str(row.get("order_id")): row for row in rows}
         selected: list[dict[str, Any]] = []
         for order_id in ids:
@@ -85,17 +95,26 @@ class BaselineMLResearch:
 
     @staticmethod
     def _records_to_matrix(records: list[dict[str, Any]]) -> np.ndarray:
-        return np.asarray(
-            [[record.get(name) for name in ResearchFeatureDatasetProjection.MODEL_FEATURES] for record in records],
-            dtype=object,
-        )
+        categorical = set(ResearchFeatureDatasetProjection.CATEGORICAL_FEATURES)
+        matrix: list[list[Any]] = []
+        for record in records:
+            values: list[Any] = []
+            for name in ResearchFeatureDatasetProjection.MODEL_FEATURES:
+                value = record.get(name)
+                if name in categorical:
+                    values.append(str(value) if value not in (None, "") else "__MISSING__")
+                else:
+                    values.append(np.nan if value is None else value)
+            matrix.append(values)
+        return np.asarray(matrix, dtype=object)
 
     @staticmethod
     def _preprocessor() -> ColumnTransformer:
-        categorical_indices = list(range(len(ResearchFeatureDatasetProjection.CATEGORICAL_FEATURES)))
+        categorical_count = len(ResearchFeatureDatasetProjection.CATEGORICAL_FEATURES)
+        categorical_indices = list(range(categorical_count))
         numeric_indices = list(
             range(
-                len(ResearchFeatureDatasetProjection.CATEGORICAL_FEATURES),
+                categorical_count,
                 len(ResearchFeatureDatasetProjection.MODEL_FEATURES),
             )
         )
@@ -142,7 +161,10 @@ class BaselineMLResearch:
         }
 
     @staticmethod
-    def _predict_positive_probability(model: Pipeline, x: np.ndarray) -> np.ndarray:
+    def _predict_positive_probability(
+        model: Pipeline,
+        x: np.ndarray,
+    ) -> np.ndarray:
         probabilities = model.predict_proba(x)
         classes = list(model.classes_)
         if 1 not in classes:
@@ -150,11 +172,18 @@ class BaselineMLResearch:
         return probabilities[:, classes.index(1)]
 
     @staticmethod
-    def _classification_metrics(y_true: np.ndarray, probabilities: np.ndarray) -> dict[str, float | None]:
+    def _classification_metrics(
+        y_true: np.ndarray,
+        probabilities: np.ndarray,
+    ) -> dict[str, float | None]:
         predictions = (probabilities >= 0.5).astype(int)
         unique = np.unique(y_true)
         roc_auc = float(roc_auc_score(y_true, probabilities)) if len(unique) == 2 else None
-        pr_auc = float(average_precision_score(y_true, probabilities)) if len(unique) == 2 else None
+        pr_auc = (
+            float(average_precision_score(y_true, probabilities))
+            if len(unique) == 2
+            else None
+        )
         return {
             "accuracy": float(accuracy_score(y_true, predictions)),
             "precision": float(precision_score(y_true, predictions, zero_division=0)),
@@ -165,7 +194,10 @@ class BaselineMLResearch:
         }
 
     @staticmethod
-    def _trading_metrics(realized_r: np.ndarray, mask: np.ndarray) -> dict[str, float | int | None]:
+    def _trading_metrics(
+        realized_r: np.ndarray,
+        mask: np.ndarray,
+    ) -> dict[str, float | int | None]:
         selected = realized_r[mask]
         if len(selected) == 0:
             return {
@@ -188,10 +220,8 @@ class BaselineMLResearch:
         probabilities: np.ndarray,
         realized_r: np.ndarray,
     ) -> dict[str, Any]:
-        minimum_selected = max(
-            self.config.minimum_validation_selection,
-            math.ceil(len(realized_r) * 0.10),
-        )
+        ten_percent = max(1, math.ceil(len(realized_r) * 0.10))
+        minimum_selected = min(self.config.minimum_validation_selection, ten_percent)
         candidates: list[dict[str, Any]] = []
         threshold = self.config.threshold_start
         while threshold <= self.config.threshold_stop + 1e-9:
@@ -225,7 +255,9 @@ class BaselineMLResearch:
 
     def run(self, historical_trades: list[dict[str, Any]]) -> dict[str, Any]:
         quality = ResearchFeatureDatasetProjection.quality(
-            [], historical_trades=historical_trades, source="historical"
+            [],
+            historical_trades=historical_trades,
+            source="historical",
         )
         if quality["readiness"]["training"] != "READY":
             raise ValueError("research feature dataset is not training-ready")
@@ -233,10 +265,14 @@ class BaselineMLResearch:
             raise ValueError("research feature leakage check failed")
 
         dataset = ResearchFeatureDatasetProjection.build(
-            [], historical_trades=historical_trades, source="historical"
+            [],
+            historical_trades=historical_trades,
+            source="historical",
         )
         split = ResearchFeatureDatasetProjection.temporal_split(
-            [], historical_trades=historical_trades, source="historical"
+            [],
+            historical_trades=historical_trades,
+            source="historical",
         )
         if split["readiness"] != "READY":
             raise ValueError("chronological research split is not ready")
@@ -246,46 +282,77 @@ class BaselineMLResearch:
         validation_rows = self._rows_by_ids(rows, split["order_ids"]["validation"])
         test_rows = self._rows_by_ids(rows, split["order_ids"]["test"])
 
-        x_train = self._records_to_matrix([self._feature_record(row) for row in train_rows])
+        x_train = self._records_to_matrix(
+            [self._feature_record(row) for row in train_rows]
+        )
         x_validation = self._records_to_matrix(
             [self._feature_record(row) for row in validation_rows]
         )
-        x_test = self._records_to_matrix([self._feature_record(row) for row in test_rows])
+        x_test = self._records_to_matrix(
+            [self._feature_record(row) for row in test_rows]
+        )
         y_train = np.asarray([self._target(row) for row in train_rows], dtype=int)
-        y_validation = np.asarray([self._target(row) for row in validation_rows], dtype=int)
+        y_validation = np.asarray(
+            [self._target(row) for row in validation_rows],
+            dtype=int,
+        )
         y_test = np.asarray([self._target(row) for row in test_rows], dtype=int)
-        r_validation = np.asarray([self._realized_r(row) for row in validation_rows], dtype=float)
-        r_test = np.asarray([self._realized_r(row) for row in test_rows], dtype=float)
+        r_validation = np.asarray(
+            [self._realized_r(row) for row in validation_rows],
+            dtype=float,
+        )
+        r_test = np.asarray(
+            [self._realized_r(row) for row in test_rows],
+            dtype=float,
+        )
 
         model_reports: dict[str, Any] = {}
         fitted_models: dict[str, Pipeline] = {}
         for name, model in self._models().items():
             model.fit(x_train, y_train)
             fitted_models[name] = model
-            validation_probability = self._predict_positive_probability(model, x_validation)
+            validation_probability = self._predict_positive_probability(
+                model,
+                x_validation,
+            )
             test_probability = self._predict_positive_probability(model, x_test)
             model_reports[name] = {
-                "validation": self._classification_metrics(y_validation, validation_probability),
+                "validation": self._classification_metrics(
+                    y_validation,
+                    validation_probability,
+                ),
                 "test": self._classification_metrics(y_test, test_probability),
             }
 
         candidate_models = [name for name in model_reports if name != "dummy_prior"]
         selected_model_name = max(
             candidate_models,
-            key=lambda name: float(model_reports[name]["validation"]["pr_auc"] or -1.0),
+            key=lambda name: float(
+                model_reports[name]["validation"]["pr_auc"] or -1.0
+            ),
         )
         selected_model = fitted_models[selected_model_name]
-        validation_probability = self._predict_positive_probability(selected_model, x_validation)
+        validation_probability = self._predict_positive_probability(
+            selected_model,
+            x_validation,
+        )
         test_probability = self._predict_positive_probability(selected_model, x_test)
-        threshold_report = self._select_threshold(validation_probability, r_validation)
+        threshold_report = self._select_threshold(
+            validation_probability,
+            r_validation,
+        )
         threshold = float(threshold_report["selected_threshold"])
 
         validation_mask = validation_probability >= threshold
         test_mask = test_probability >= threshold
         baseline_validation = self._trading_metrics(
-            r_validation, np.ones(len(r_validation), dtype=bool)
+            r_validation,
+            np.ones(len(r_validation), dtype=bool),
         )
-        baseline_test = self._trading_metrics(r_test, np.ones(len(r_test), dtype=bool))
+        baseline_test = self._trading_metrics(
+            r_test,
+            np.ones(len(r_test), dtype=bool),
+        )
         filtered_validation = self._trading_metrics(r_validation, validation_mask)
         filtered_test = self._trading_metrics(r_test, test_mask)
 
@@ -332,7 +399,8 @@ class BaselineMLResearch:
             "acceptance": {
                 "dataset_schema_compatible": dataset["schema_version"]
                 == ResearchFeatureDatasetProjection.SCHEMA_VERSION,
-                "feature_leakage": quality["quality"]["leakage_check"]["status"] == "PASS",
+                "feature_leakage": quality["quality"]["leakage_check"]["status"]
+                == "PASS",
                 "chronological_split": split["readiness"] == "READY",
                 "train_only_preprocessing": True,
                 "model_training": True,
