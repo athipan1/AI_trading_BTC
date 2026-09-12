@@ -171,6 +171,40 @@ class HistoricalStrategyReplay:
             "trades": trades,
         }
 
+    def replay_segments(
+        self,
+        segments: list[list[Candle]],
+        strategy: ReplayStrategy,
+    ) -> dict[str, Any]:
+        """Replay each continuous segment independently so state never crosses a data gap."""
+        trades: list[dict[str, Any]] = []
+        replayed_segments = 0
+        skipped_segments = 0
+        for segment in segments:
+            if len(segment) <= strategy.min_candles:
+                skipped_segments += 1
+                continue
+            result = self.replay(segment, strategy)
+            replayed_segments += 1
+            segment_trades = result.get("trades", [])
+            if isinstance(segment_trades, list):
+                trades.extend(dict(item) for item in segment_trades if isinstance(item, dict))
+        return {
+            "schema_version": self.SCHEMA_VERSION,
+            "basis": "canonical_strategy_replay_next_candle_execution_gap_segmented",
+            "production_position_store_mutated": False,
+            "symbol": self.config.symbol,
+            "timeframe": self.config.timeframe,
+            "strategy_id": strategy.strategy_id,
+            "source_candles": sum(len(segment) for segment in segments),
+            "gap_policy": "segment",
+            "segment_count": len(segments),
+            "replayed_segment_count": replayed_segments,
+            "skipped_segment_count": skipped_segments,
+            "closed_trades": len(trades),
+            "trades": trades,
+        }
+
 
 def canonical_replay_strategies() -> tuple[ReplayStrategy, ...]:
     return (TripleEMAAlignmentBreakoutStrategy(), TripleEMAShortStrategy())
