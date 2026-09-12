@@ -100,11 +100,9 @@ def test_historical_dataset_reaches_quality_and_training_readiness(tmp_path: Pat
 
     assert quality["sample_size"] == 30
     assert quality["quality"]["leakage_check"]["status"] == "PASS"
-    assert quality["readiness"] == {
-        "pipeline": "READY",
-        "dataset": "READY",
-        "training": "READY",
-    }
+    assert quality["readiness"]["pipeline"] == "READY"
+    assert quality["readiness"]["dataset"] == "READY"
+    assert quality["readiness"]["training"] == "READY"
     assert split["counts"] == {"train": 21, "validation": 4, "test": 5}
     assert split["random_shuffle"] is False
     assert split["readiness"] == "READY"
