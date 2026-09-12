@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from app.models import Candle, TradeAction, TradeSignal
+from app.research.entry_features import ENTRY_FEATURE_SCHEMA_VERSION, build_entry_time_features
 from app.strategies.triple_ema_breakout import TripleEMAAlignmentBreakoutStrategy
 from app.strategies.triple_ema_short import TripleEMAShortStrategy
 
@@ -137,6 +138,7 @@ class HistoricalStrategyReplay:
             risk_distance = abs(entry_fill - signal.stop_loss)
             if risk_distance <= 0:
                 continue
+            entry_features = build_entry_time_features(history)
             order_id = f"hist-{strategy.strategy_id}-{next_candle.timestamp_ms}"
             active = {
                 "order_id": order_id,
@@ -147,6 +149,9 @@ class HistoricalStrategyReplay:
                 "created_at": self._iso(next_candle.timestamp_ms),
                 "opened_at_ms": next_candle.timestamp_ms,
                 "decision_at": self._iso(decision_candle.timestamp_ms),
+                "entry_feature_schema_version": ENTRY_FEATURE_SCHEMA_VERSION,
+                "entry_feature_timestamp_ms": decision_candle.timestamp_ms,
+                "entry_features": entry_features,
                 "entry_price": signal.entry_price or decision_candle.close,
                 "entry_fill_price": entry_fill,
                 "quantity": self.config.quantity,
