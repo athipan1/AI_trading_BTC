@@ -4,7 +4,8 @@ services:
       context: .
       dockerfile: deploy/hermes3d/Dockerfile
     depends_on:
-      - btc-trader
+      btc-trader:
+        condition: service_healthy
     environment:
       HOST: 0.0.0.0
       PORT: 3000
@@ -15,3 +16,14 @@ services:
       UPSTREAM_ALLOWLIST: btc-trader
     ports:
       - "3000:3000"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/office').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
