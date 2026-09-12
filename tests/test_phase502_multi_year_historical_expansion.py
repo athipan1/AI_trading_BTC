@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-
 from app.models import Candle
 from app.research.feature_dataset import ResearchFeatureDatasetProjection
 from app.research.historical_diagnostics import HistoricalResearchDiagnostics
@@ -24,8 +22,10 @@ def candle(timestamp_ms: int) -> Candle:
 
 
 def historical_trade(index: int) -> dict[str, object]:
-    opened = datetime(2021, 1, 1, tzinfo=UTC) + timedelta(days=index * 70)
-    closed = opened + timedelta(hours=6)
+    year = 2021 + index // 5
+    month = index % 5 + 1
+    opened = f"{year:04d}-{month:02d}-01T00:00:00+00:00"
+    closed = f"{year:04d}-{month:02d}-01T06:00:00+00:00"
     side = "buy" if index % 2 == 0 else "sell"
     regime = ("BULL_TREND", "BEAR_TREND", "SIDEWAYS")[index % 3]
     realized_r = 1.2 if index % 3 == 0 else -0.6 if index % 3 == 1 else 0.0
@@ -35,8 +35,8 @@ def historical_trade(index: int) -> dict[str, object]:
         "symbol": "BTC/USDT",
         "side": side,
         "status": "CLOSED",
-        "created_at": opened.isoformat(),
-        "closed_at": closed.isoformat(),
+        "created_at": opened,
+        "closed_at": closed,
         "entry_price": 100.0,
         "entry_fill_price": 100.02,
         "quantity": 0.1,
@@ -109,7 +109,7 @@ def test_multi_year_diagnostics_report_strategy_regime_side_and_year_coverage() 
     assert report["sample_size"] == 30
     assert report["invalid_rows"] == 0
     assert report["duplicate_order_ids"] == 0
-    assert report["coverage"]["calendar_year_count"] >= 5
+    assert report["coverage"]["calendar_year_count"] == 6
     assert report["coverage"]["regime_count"] == 3
     assert set(report["coverage"]["strategies"]) == {"triple_ema", "triple_ema_short"}
     assert report["coverage"]["sides"] == {"buy": 15, "sell": 15}
