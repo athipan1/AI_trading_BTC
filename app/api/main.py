@@ -10,7 +10,7 @@ from app.execution.paper import PaperBroker
 from app.integrations.hermes3d.analytics import Hermes3DTradingAnalyticsProjection
 from app.integrations.hermes3d.events import Hermes3DEventStream
 from app.integrations.hermes3d.journal import Hermes3DEventJournal
-from app.integrations.hermes3d.projection import Hermes3DJournalStateProjection
+from app.integrations.hermes3d.production_projection import Hermes3DProductionJournalStateProjection
 from app.integrations.hermes3d.quant_analytics import Hermes3DQuantAnalyticsProjection
 from app.integrations.hermes3d.router import build_hermes3d_router
 from app.integrations.hermes3d.simulator import Hermes3DValidationEventSimulator
@@ -51,7 +51,7 @@ hermes3d_auto_state_paths = {
     "triple_ema": settings.hermes3d_triple_ema_state_store,
     "triple_ema_short": settings.hermes3d_futures_short_state_store,
 }
-hermes3d_projection = Hermes3DJournalStateProjection(
+hermes3d_projection = Hermes3DProductionJournalStateProjection(
     journal=hermes3d_journal,
     spot_position_store=hermes3d_spot_positions,
     futures_position_store=hermes3d_futures_positions,
