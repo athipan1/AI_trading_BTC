@@ -34,6 +34,25 @@ class OOSPromotionGate:
         ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
 
+    @staticmethod
+    def _structural_acceptance_passes(structural: dict[str, Any]) -> bool:
+        """Interpret Phase 5.6 structural checks using their declared semantics.
+
+        Most structural fields are positive assertions and must be true. The
+        `oos_retuning` field is intentionally negative in the Phase 5.6 schema,
+        so a safe result is False.
+        """
+        if not structural:
+            return False
+        expected_false = {"oos_retuning"}
+        for key, value in structural.items():
+            if key in expected_false:
+                if bool(value):
+                    return False
+            elif not bool(value):
+                return False
+        return True
+
     def build_gate_manifest(
         self,
         *,
@@ -152,7 +171,7 @@ class OOSPromotionGate:
         oos = validation.get("oos", {})
 
         sample_ready = bool(evidence) and all(bool(value) for value in evidence.values())
-        structural_pass = bool(structural) and all(bool(value) for value in structural.values())
+        structural_pass = self._structural_acceptance_passes(structural)
         performance_pass = bool(performance) and all(bool(value) for value in performance.values())
 
         superiority_expectancy = bool(superiority.get("policy_expectancy_ge_global_ml"))
