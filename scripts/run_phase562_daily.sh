@@ -40,3 +40,10 @@ export PYTHONPATH="${PYTHONPATH:-.}"
   --fee-rate 0.001 \
   --slippage-bps 2 \
   --output "$RESEARCH_DIR/phase562_forward_oos.json"
+
+"$PYTHON_BIN" scripts/run_phase563_oos_promotion_gate.py \
+  --discovery-store "$RESEARCH_DIR/btc_h1_2021_2026_gap_aware.json" \
+  --oos-store "$RESEARCH_DIR/phase56_fresh_oos.json" \
+  --manifest "$RESEARCH_DIR/phase56_frozen_manifest.json" \
+  --gate-manifest "$RESEARCH_DIR/phase563_promotion_gate_manifest.json" \
+  --output "$RESEARCH_DIR/phase563_promotion_gate.json"
