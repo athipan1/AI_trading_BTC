@@ -264,6 +264,31 @@ class ResearchFeatureDatasetProjection:
         def ids(items: list[dict[str, Any]]) -> list[str]:
             return [str(item.get("order_id")) for item in items]
 
+        def bounds(items: list[dict[str, Any]]) -> dict[str, str | None]:
+            if not items:
+                return {"first": None, "last": None}
+            return {
+                "first": str(items[0].get("feature_available_at") or ""),
+                "last": str(items[-1].get("feature_available_at") or ""),
+            }
+
+        train_ids = set(ids(train))
+        validation_ids = set(ids(validation))
+        test_ids = set(ids(test))
+        no_overlap = not (
+            train_ids & validation_ids or train_ids & test_ids or validation_ids & test_ids
+        )
+        chronological = True
+        if train and validation:
+            chronological = chronological and str(train[-1].get("feature_available_at") or "") <= str(
+                validation[0].get("feature_available_at") or ""
+            )
+        if validation and test:
+            chronological = chronological and str(validation[-1].get("feature_available_at") or "") <= str(
+                test[0].get("feature_available_at") or ""
+            )
+
+        split_ready = total >= cls.MIN_TRAINING_SAMPLES and no_overlap and chronological
         return {
             "schema_version": cls.SCHEMA_VERSION,
             "filters": dataset["filters"],
@@ -276,10 +301,19 @@ class ResearchFeatureDatasetProjection:
                 "validation": len(validation),
                 "test": len(test),
             },
+            "time_bounds": {
+                "train": bounds(train),
+                "validation": bounds(validation),
+                "test": bounds(test),
+            },
+            "checks": {
+                "order_id_overlap": "PASS" if no_overlap else "FAIL",
+                "chronological_order": "PASS" if chronological else "FAIL",
+            },
             "order_ids": {
                 "train": ids(train),
                 "validation": ids(validation),
                 "test": ids(test),
             },
-            "readiness": "READY" if total >= cls.MIN_TRAINING_SAMPLES else "NOT_READY",
+            "readiness": "READY" if split_ready else "NOT_READY",
         }
