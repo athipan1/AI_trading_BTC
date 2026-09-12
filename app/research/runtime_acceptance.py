@@ -1,6 +1,3 @@
-from __future__ import annotations
-
-
 PHASE51_MIN_ADVANCED_COVERAGE_PCT = 95.0
 PHASE51_MIN_ADVANCED_ROW_COVERAGE_PCT = 95.0
 
