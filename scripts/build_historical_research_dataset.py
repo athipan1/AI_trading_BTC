@@ -43,6 +43,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--slippage-bps", type=float, default=2.0)
     parser.add_argument("--store", default=None)
     parser.add_argument(
+        "--gap-policy",
+        choices=("reject", "segment"),
+        default="reject",
+        help=(
+            "reject source gaps, or segment replay so no strategy/indicator state crosses a gap"
+        ),
+    )
+    parser.add_argument(
         "--require-complete-range",
         action="store_true",
         help="Fail when the requested OHLCV range contains gaps or partial coverage",
@@ -76,8 +84,23 @@ def main() -> None:
     )
     print(f"Historical candles: {len(candles)}")
     print(f"OHLCV integrity: {json.dumps(integrity, sort_keys=True)}")
+
     if args.require_complete_range and not integrity["complete_range"]:
         raise RuntimeError("historical OHLCV range failed completeness check")
+    if not integrity["segment_replay_safe"]:
+        raise RuntimeError("historical OHLCV range is unsafe for segmented replay")
+    missing_count = int(integrity["missing_interval_count"])
+    if missing_count and args.gap_policy == "reject":
+        raise RuntimeError(
+            "historical OHLCV range contains source gaps; rerun with --gap-policy segment "
+            "to reset replay state at each continuous segment"
+        )
+
+    segments = service.contiguous_segments(candles, timeframe=timeframe)
+    print(
+        f"Gap policy: {args.gap_policy} missing_intervals={missing_count} "
+        f"segments={len(segments)} synthetic_candles=0"
+    )
 
     config = HistoricalReplayConfig(
         symbol=symbol,
@@ -91,12 +114,15 @@ def main() -> None:
     commit = _git_commit()
     dataset_run_id = (
         f"{symbol.replace('/', '')}-{timeframe}-{args.since}-{args.until}"
-        f"-fee{args.fee_rate}-slip{args.slippage_bps}"
+        f"-fee{args.fee_rate}-slip{args.slippage_bps}-gap{args.gap_policy}"
     )
 
     total_closed = 0
     for strategy in canonical_replay_strategies():
-        replay = engine.replay(candles, strategy)
+        if args.gap_policy == "segment":
+            replay = engine.replay_segments(segments, strategy)
+        else:
+            replay = engine.replay(candles, strategy)
         result = store.upsert_replay(
             replay,
             dataset_run_id=dataset_run_id,
@@ -104,9 +130,16 @@ def main() -> None:
         )
         closed = int(replay["closed_trades"])
         total_closed += closed
+        segment_detail = ""
+        if args.gap_policy == "segment":
+            segment_detail = (
+                f" segments={replay['segment_count']}"
+                f" replayed_segments={replay['replayed_segment_count']}"
+                f" skipped_segments={replay['skipped_segment_count']}"
+            )
         print(
             f"{strategy.strategy_id}: closed={closed} inserted={result['inserted']} "
-            f"updated={result['updated']} store_total={result['total']}"
+            f"updated={result['updated']} store_total={result['total']}{segment_detail}"
         )
 
     historical = store.load()
