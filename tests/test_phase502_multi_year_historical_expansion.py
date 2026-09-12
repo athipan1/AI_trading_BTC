@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 from app.models import Candle
 from app.research.feature_dataset import ResearchFeatureDatasetProjection
@@ -118,7 +117,7 @@ def test_multi_year_diagnostics_report_strategy_regime_side_and_year_coverage() 
     assert report["distributions"]["realized_r"]["median"] is not None
 
 
-def test_phase502_preserves_idempotency_and_chronological_split(tmp_path: Path) -> None:
+def test_phase502_preserves_idempotency_and_chronological_split(tmp_path) -> None:
     trades = [historical_trade(index) for index in range(30)]
     replay = {"schema_version": "historical_replay_schema_v1", "trades": trades}
     store = HistoricalResearchStore(tmp_path / "historical-phase502.json")
