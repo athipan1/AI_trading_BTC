@@ -59,6 +59,24 @@ def test_walk_forward_windows_are_expanding_and_chronological() -> None:
         ]
 
 
+def test_phase53_runtime_window_supports_four_folds_for_1307_samples() -> None:
+    research = WalkForwardResearch(
+        config=WalkForwardConfig(
+            fold_count=4,
+            initial_train_fraction=0.40,
+            validation_fraction=0.07,
+            test_fraction=0.07,
+        )
+    )
+    folds = research._folds(_rows(1307))
+
+    assert len(folds) == 4
+    assert [len(fold["train"]) for fold in folds] == [522, 704, 886, 1068]
+    assert all(len(fold["validation"]) == 91 for fold in folds)
+    assert all(len(fold["test"]) == 91 for fold in folds)
+    assert folds[-1]["test"][-1]["order_id"] == "wf-1249"
+
+
 def test_walk_forward_run_preserves_research_isolation(monkeypatch) -> None:
     rows = _rows()
 
