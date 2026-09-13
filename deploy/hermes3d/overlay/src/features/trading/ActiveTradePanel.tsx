@@ -99,6 +99,7 @@ type Labels = {
   updated: string;
   hide: string;
   show: string;
+  details: string;
   market: string;
   price: string;
   timeframe: string;
@@ -133,8 +134,9 @@ const LABELS: Record<OfficeLocale, Labels> = {
     lifecycle: "วงจรเทรด",
     latestEvent: "เหตุการณ์ล่าสุด",
     updated: "อัปเดต",
-    hide: "ซ่อนสถานะเทรด",
-    show: "แสดงสถานะเทรด",
+    hide: "ซ่อนรายละเอียดเทรด",
+    show: "แสดงรายละเอียดเทรด",
+    details: "รายละเอียด",
     market: "ตลาดสด",
     price: "ราคา BTC",
     timeframe: "กรอบเวลา",
@@ -167,8 +169,9 @@ const LABELS: Record<OfficeLocale, Labels> = {
     lifecycle: "Trade lifecycle",
     latestEvent: "Latest event",
     updated: "Updated",
-    hide: "Hide active trade",
-    show: "Show active trade",
+    hide: "Hide trade details",
+    show: "Show trade details",
+    details: "Details",
     market: "Live market",
     price: "BTC price",
     timeframe: "Timeframe",
@@ -188,13 +191,7 @@ const LABELS: Record<OfficeLocale, Labels> = {
   },
 };
 
-const TRADE_STAGES = [
-  "ORDER_OPENED",
-  "RECONCILING",
-  "POSITION_ACTIVE",
-  "POSITION_CLOSED",
-  "PNL_RECONCILED",
-] as const;
+const TRADE_STAGES = ["ORDER_OPENED", "RECONCILING", "POSITION_ACTIVE", "POSITION_CLOSED", "PNL_RECONCILED"] as const;
 
 const STAGE_RANK: Record<string, number> = {
   ORDER_OPENED: 50,
@@ -246,6 +243,14 @@ const stageLabel = (state: string, locale: OfficeLocale): string => {
   return labels[locale][state] ?? state;
 };
 
+const strategyLabel = (strategyId?: string | null): string => {
+  if (!strategyId) return "-";
+  return strategyId
+    .split("_")
+    .map((part) => part.toUpperCase() === "EMA" ? "EMA" : `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+};
+
 const selectLivePosition = (positions?: RuntimePositions | null): PositionState | null => {
   const candidates = [
     ...(positions?.futures_testnet_short ?? []),
@@ -260,16 +265,15 @@ const calculateUnrealizedPnl = (position: PositionState | null, price?: number |
   const entry = position.entry_price;
   const quantity = position.quantity;
   if (entry === null || entry === undefined || quantity === null || quantity === undefined) return null;
-  const shortSide = String(position.side ?? "").toLowerCase() === "sell" || String(position.side ?? "").toLowerCase() === "short";
-  const move = shortSide ? entry - price : price - entry;
-  return move * quantity;
+  const shortSide = ["sell", "short"].includes(String(position.side ?? "").toLowerCase());
+  return (shortSide ? entry - price : price - entry) * quantity;
 };
 
 export function ActiveTradePanel() {
   const [runtimeState, setRuntimeState] = useState<TradingRuntimeState>({});
   const [status, setStatus] = useState<PanelStatus>("loading");
   const [locale, setLocale] = useState<OfficeLocale>("th");
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -307,8 +311,10 @@ export function ActiveTradePanel() {
   );
   const unrealizedPnl = calculateUnrealizedPnl(livePosition, market.price);
   const realizedPnl = livePosition?.net_realized_pnl ?? livePosition?.gross_realized_pnl ?? null;
-  const circuitBreakers = runtimeState.risk?.circuit_breakers ?? {};
-  const haltedStrategies = Object.keys(circuitBreakers);
+  const haltedStrategies = Object.keys(runtimeState.risk?.circuit_breakers ?? {});
+  const symbol = trade?.correlation?.symbol ?? livePosition?.symbol ?? market.symbol ?? "BTC/USDT";
+  const side = String(livePosition?.side ?? strategyState?.signal?.action ?? "-").toUpperCase().replace("SELL", "SHORT").replace("BUY", "LONG");
+  const strategy = trade?.correlation?.strategy_id ?? activeStrategyId;
 
   return (
     <aside
@@ -317,47 +323,86 @@ export function ActiveTradePanel() {
       className="fixed right-2 top-2 z-[99] w-[min(92vw,360px)] text-[11px] text-cyan-50"
       aria-live="polite"
     >
-      <button
-        type="button"
-        onClick={() => setExpanded((value) => !value)}
-        className="pointer-events-auto ml-auto flex min-h-8 items-center gap-1.5 rounded-md border border-cyan-400/40 bg-black/80 px-2 py-1 shadow-lg backdrop-blur transition-colors hover:border-cyan-300/60 hover:bg-black/90"
-        aria-expanded={expanded}
-        aria-controls="active-trade-panel-body"
-        aria-label={expanded ? labels.hide : labels.show}
-      >
-        <span aria-hidden="true" className={status === "error" ? "text-red-300" : "text-emerald-300"}>●</span>
-        <span className="font-medium">{labels.title}</span>
-        <span className="text-cyan-100/55">{status === "loading" ? labels.loading : status === "error" ? labels.offline : labels.online}</span>
-      </button>
+      <div data-active-trade-hud className="pointer-events-auto rounded-lg border border-cyan-400/40 bg-black/88 p-2.5 shadow-xl backdrop-blur">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[12px] font-semibold">
+              <span className="truncate">{symbol}</span>
+              <span className={side === "SHORT" ? "text-rose-200" : side === "LONG" ? "text-emerald-200" : "text-cyan-100/60"}>{side}</span>
+            </div>
+            <div className="mt-0.5 flex items-center gap-1.5">
+              <span aria-hidden="true" className={status === "error" ? "text-red-300" : "text-emerald-300"}>●</span>
+              <span className={status === "error" ? "font-semibold text-red-200" : "font-semibold text-emerald-200"}>
+                {status === "loading" ? labels.loading : status === "error" ? labels.offline : currentState ? stageLabel(currentState, locale) : labels.noActiveTrade}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="flex min-h-8 shrink-0 items-center gap-1 rounded-md border border-cyan-400/30 bg-cyan-500/5 px-2 py-1 text-cyan-100/80 transition-colors hover:border-cyan-300/60 hover:text-cyan-50"
+            aria-expanded={expanded}
+            aria-controls="active-trade-panel-body"
+            aria-label={expanded ? labels.hide : labels.show}
+          >
+            <span>{labels.details}</span>
+            <span aria-hidden="true">{expanded ? "▴" : "▾"}</span>
+          </button>
+        </div>
+
+        {trade || livePosition ? (
+          <>
+            <div className="mt-1.5 truncate text-cyan-100/75">{strategyLabel(strategy)}</div>
+            <div className="mt-0.5 font-mono text-[10px] text-cyan-100/55">#{compactId(trade?.correlation?.order_id)}</div>
+            <div data-active-trade-lifecycle-strip className="mt-2 flex items-center justify-between gap-1 border-t border-cyan-300/15 pt-2">
+              {TRADE_STAGES.map((stage) => {
+                const rank = STAGE_RANK[stage];
+                const isCurrent = currentState === stage;
+                const isReached = currentRank >= rank || observedStates.has(stage);
+                return (
+                  <div key={stage} className="min-w-0 flex-1 text-center" title={stageLabel(stage, locale)}>
+                    <div aria-hidden="true" className={isCurrent ? "text-emerald-200" : isReached ? "text-cyan-200/80" : "text-cyan-100/25"}>{isCurrent ? "●" : isReached ? "✓" : "○"}</div>
+                    <div className="mt-0.5 truncate text-[8px] text-cyan-100/50">{stageLabel(stage, locale)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : null}
+      </div>
 
       {expanded ? (
         <div
           id="active-trade-panel-body"
-          className="pointer-events-auto mt-1 max-h-[min(66dvh,34rem)] overflow-y-auto rounded-md border border-cyan-400/40 bg-black/85 p-2.5 leading-4 shadow-xl backdrop-blur"
+          className="pointer-events-auto mt-1 max-h-[min(66dvh,34rem)] overflow-y-auto rounded-md border border-cyan-400/30 bg-black/88 p-2.5 leading-4 shadow-xl backdrop-blur"
         >
-          {status === "error" ? (
-            <div className="text-red-200">{labels.offline}</div>
-          ) : (
+          {status === "error" ? <div className="text-red-200">{labels.offline}</div> : (
             <>
-              <section data-live-market-metrics>
+              {trade ? (
+                <section data-trade-correlation-details>
+                  <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                    <span className="text-cyan-100/55">{labels.tradeId}</span><span className="min-w-0 truncate font-mono" title={trade.correlation?.trade_id ?? undefined}>{compactId(trade.correlation?.trade_id)}</span>
+                    <span className="text-cyan-100/55">{labels.owner}</span><span>{trade.agent_id ?? "-"}</span>
+                    <span className="text-cyan-100/55">{labels.latestEvent}</span><span className="min-w-0 truncate">{trade.event ?? "-"}</span>
+                    <span className="text-cyan-100/55">{labels.updated}</span><span>{formatTimestamp(trade.generated_at)}</span>
+                  </div>
+                </section>
+              ) : null}
+
+              <section data-live-market-metrics className={trade ? "mt-2 border-t border-cyan-300/20 pt-2" : ""}>
                 <div className="mb-1 font-medium text-cyan-100/80">{labels.market}</div>
                 <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-                  <span className="text-cyan-100/55">{labels.symbol}</span><span>{market.symbol ?? livePosition?.symbol ?? "BTC/USDT"}</span>
                   <span className="text-cyan-100/55">{labels.price}</span><span className="font-semibold text-emerald-200">{formatNumber(market.price, 2)}</span>
                   <span className="text-cyan-100/55">{labels.timeframe}</span><span>{market.timeframe ?? "-"}</span>
                   <span className="text-cyan-100/55">{labels.regime}</span><span>{market.regime ?? strategyState?.signal?.regime ?? "-"}</span>
                   <span className="text-cyan-100/55">{labels.signal}</span><span className="font-semibold">{strategyState?.signal?.action ?? "HOLD"}</span>
                 </div>
-                <div className="mt-1 text-cyan-100/65">
-                  {labels.indicators}: EMA20 {formatNumber(market.ema20, 2)} · EMA50 {formatNumber(market.ema50, 2)} · EMA200 {formatNumber(market.ema200, 2)} · RSI {formatNumber(market.rsi14, 1)} · ATR {formatNumber(market.atr14, 2)}
-                </div>
+                <div className="mt-1 text-cyan-100/65">{labels.indicators}: EMA20 {formatNumber(market.ema20, 2)} · EMA50 {formatNumber(market.ema50, 2)} · EMA200 {formatNumber(market.ema200, 2)} · RSI {formatNumber(market.rsi14, 1)} · ATR {formatNumber(market.atr14, 2)}</div>
               </section>
 
               <section data-live-position-metrics className="mt-2 border-t border-cyan-300/20 pt-2">
                 <div className="mb-1 font-medium text-cyan-100/80">{labels.position}</div>
-                {!livePosition ? (
-                  <div className="text-cyan-100/65">{labels.noActiveTrade}</div>
-                ) : (
+                {!livePosition ? <div className="text-cyan-100/65">{labels.noActiveTrade}</div> : (
                   <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
                     <span className="text-cyan-100/55">{labels.strategy}</span><span>{livePosition.strategy_id ?? activeStrategyId ?? "-"}</span>
                     <span className="text-cyan-100/55">{labels.side}</span><span>{String(livePosition.side ?? "-").toUpperCase()}</span>
@@ -375,41 +420,6 @@ export function ActiveTradePanel() {
                 <span className="text-cyan-100/55">{labels.circuitBreaker}: </span>
                 <span className={haltedStrategies.length ? "font-semibold text-red-200" : "text-emerald-200"}>{haltedStrategies.length ? haltedStrategies.join(", ") : labels.clear}</span>
               </section>
-
-              {trade ? (
-                <section className="mt-2 border-t border-cyan-300/20 pt-2">
-                  <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-                    <span className="text-cyan-100/55">{labels.strategy}</span><span className="min-w-0 truncate font-medium">{trade.correlation?.strategy_id ?? "-"}</span>
-                    <span className="text-cyan-100/55">{labels.symbol}</span><span>{trade.correlation?.symbol ?? "-"}</span>
-                    <span className="text-cyan-100/55">{labels.orderId}</span><span className="font-mono">{compactId(trade.correlation?.order_id)}</span>
-                    <span className="text-cyan-100/55">{labels.tradeId}</span><span className="min-w-0 truncate font-mono" title={trade.correlation?.trade_id ?? undefined}>{compactId(trade.correlation?.trade_id)}</span>
-                    <span className="text-cyan-100/55">{labels.currentState}</span><span className="font-semibold text-emerald-200">{currentState ? stageLabel(currentState, locale) : "-"}</span>
-                    <span className="text-cyan-100/55">{labels.owner}</span><span>{trade.agent_id ?? "-"}</span>
-                  </div>
-
-                  <div className="mt-2 border-t border-cyan-300/20 pt-2">
-                    <div className="mb-1 font-medium text-cyan-100/80">{labels.lifecycle}</div>
-                    <div className="space-y-1">
-                      {TRADE_STAGES.map((stage) => {
-                        const rank = STAGE_RANK[stage];
-                        const isCurrent = currentState === stage;
-                        const isReached = currentRank >= rank || observedStates.has(stage);
-                        return (
-                          <div key={stage} className="flex items-center gap-2">
-                            <span aria-hidden="true" className={isCurrent ? "text-emerald-200" : isReached ? "text-cyan-200/80" : "text-cyan-100/25"}>{isCurrent ? "●" : isReached ? "✓" : "○"}</span>
-                            <span className={isCurrent ? "font-semibold" : "text-cyan-100/75"}>{stageLabel(stage, locale)}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="mt-2 border-t border-cyan-300/20 pt-2 text-cyan-100/65">
-                    <div>{labels.latestEvent}: {trade.event ?? "-"}</div>
-                    <div>{labels.updated}: {formatTimestamp(trade.generated_at)}</div>
-                  </div>
-                </section>
-              ) : null}
             </>
           )}
         </div>

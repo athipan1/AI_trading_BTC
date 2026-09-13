@@ -15,7 +15,7 @@
     bottom: calc(3.75rem + env(safe-area-inset-bottom)) !important;
     width: auto !important;
     max-width: none !important;
-    max-height: min(34dvh, 18rem) !important;
+    max-height: min(30dvh, 16rem) !important;
   }
 
   section.pointer-events-auto.fixed.bottom-3.left-3.z-30 > div:first-child {
@@ -37,7 +37,7 @@
     max-width: 100vw;
   }
 
-  /* Phase 4.6 Active Trade stays compact and clear of the left-side SSE badge. */
+  /* Phase 4.6.1: Active Trade is an operational HUD, not a second dashboard. */
   [data-active-trade-panel] {
     top: 3rem !important;
     right: 0.5rem !important;
@@ -45,8 +45,17 @@
     width: min(92vw, 22.5rem) !important;
   }
 
+  [data-active-trade-hud] {
+    max-height: 9.75rem;
+    overflow: hidden;
+  }
+
   [data-active-trade-panel] #active-trade-panel-body {
-    max-height: min(52dvh, 26rem) !important;
+    max-height: min(38dvh, 20rem) !important;
+  }
+
+  [data-active-trade-lifecycle-strip] {
+    line-height: 1.1;
   }
 
   /* Give Hermes3D exclusive control of drag/pinch gestures inside the 3D viewport. */
@@ -60,7 +69,7 @@
 
 @media (max-width: 390px) {
   section.pointer-events-auto.fixed.bottom-3.left-3.z-30 {
-    max-height: 29dvh !important;
+    max-height: 26dvh !important;
   }
 
   [data-hq-mobile-nav] button {
@@ -70,7 +79,11 @@
   }
 
   [data-active-trade-panel] #active-trade-panel-body {
-    max-height: 45dvh !important;
+    max-height: min(34dvh, 17rem) !important;
+  }
+
+  [data-active-trade-lifecycle-strip] > div > div:last-child {
+    font-size: 0;
   }
 }
 
@@ -85,10 +98,10 @@
   }
 
   [data-active-trade-panel] #active-trade-panel-body {
-    max-height: 72dvh !important;
+    max-height: 58dvh !important;
   }
 
   section.pointer-events-auto.fixed.bottom-3.left-3.z-30 {
-    max-height: 45dvh !important;
+    max-height: 40dvh !important;
   }
 }
