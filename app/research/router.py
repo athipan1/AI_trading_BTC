@@ -9,6 +9,7 @@ from fastapi.responses import Response
 from app.monitoring.position_store import PositionStore
 from app.research.feature_dataset import ResearchFeatureDatasetProjection
 from app.research.historical_store import HistoricalResearchStore
+from app.research.promotion_observability import PromotionGateObservability
 from app.research.trade_dataset import ResearchSource, ResearchTradeDatasetProjection
 
 
@@ -17,6 +18,7 @@ def build_research_router(
     spot_position_store: PositionStore,
     futures_position_store: PositionStore,
     historical_trade_store: HistoricalResearchStore | None = None,
+    promotion_observability: PromotionGateObservability | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/research", tags=["research"])
 
@@ -111,5 +113,11 @@ def build_research_router(
             strategy_id=strategy,
             regime=regime,
         )
+
+    if promotion_observability is not None:
+
+        @router.get("/promotion")
+        def research_promotion() -> dict[str, object]:
+            return promotion_observability.snapshot()
 
     return router
