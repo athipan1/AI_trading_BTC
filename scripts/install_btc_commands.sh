@@ -27,12 +27,23 @@ else
 fi
 
 "${RUN_AS[@]}" mkdir -p "$INSTALL_DIR"
-for command in btc-start btc-stop btc-status btc-logs; do
+COMMANDS=(
+  btc-start
+  btc-stop
+  btc-status
+  btc-logs
+  btc-office-start
+  btc-office-stop
+  btc-office-restart
+  btc-office-status
+  btc-office-rebuild
+)
+
+for command in "${COMMANDS[@]}"; do
   "${RUN_AS[@]}" ln -sfn "$LAUNCHER" "$INSTALL_DIR/$command"
 done
 
 echo "Installed commands in $INSTALL_DIR:"
-echo "  btc-start"
-echo "  btc-stop"
-echo "  btc-status"
-echo "  btc-logs"
+for command in "${COMMANDS[@]}"; do
+  echo "  $command"
+done
