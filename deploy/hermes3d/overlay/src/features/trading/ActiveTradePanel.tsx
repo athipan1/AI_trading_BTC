@@ -315,6 +315,7 @@ export function ActiveTradePanel() {
   const symbol = trade?.correlation?.symbol ?? livePosition?.symbol ?? market.symbol ?? "BTC/USDT";
   const side = String(livePosition?.side ?? strategyState?.signal?.action ?? "-").toUpperCase().replace("SELL", "SHORT").replace("BUY", "LONG");
   const strategy = trade?.correlation?.strategy_id ?? activeStrategyId;
+  const stateText = status === "loading" ? labels.loading : status === "error" ? labels.offline : currentState ? stageLabel(currentState, locale) : labels.noActiveTrade;
 
   return (
     <aside
@@ -324,18 +325,11 @@ export function ActiveTradePanel() {
       aria-live="polite"
     >
       <div data-active-trade-hud className="pointer-events-auto rounded-lg border border-cyan-400/40 bg-black/88 p-2.5 shadow-xl backdrop-blur">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[12px] font-semibold">
-              <span className="truncate">{symbol}</span>
-              <span className={side === "SHORT" ? "text-rose-200" : side === "LONG" ? "text-emerald-200" : "text-cyan-100/60"}>{side}</span>
-            </div>
-            <div className="mt-0.5 flex items-center gap-1.5">
-              <span aria-hidden="true" className={status === "error" ? "text-red-300" : "text-emerald-300"}>●</span>
-              <span className={status === "error" ? "font-semibold text-red-200" : "font-semibold text-emerald-200"}>
-                {status === "loading" ? labels.loading : status === "error" ? labels.offline : currentState ? stageLabel(currentState, locale) : labels.noActiveTrade}
-              </span>
-            </div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span aria-hidden="true" className={status === "error" ? "text-red-300" : "text-emerald-300"}>●</span>
+            <span className="truncate text-[12px] font-semibold">{symbol}</span>
+            <span className={side === "SHORT" ? "shrink-0 text-rose-200" : side === "LONG" ? "shrink-0 text-emerald-200" : "shrink-0 text-cyan-100/60"}>{side}</span>
           </div>
           <button
             type="button"
@@ -349,26 +343,6 @@ export function ActiveTradePanel() {
             <span aria-hidden="true">{expanded ? "▴" : "▾"}</span>
           </button>
         </div>
-
-        {trade || livePosition ? (
-          <>
-            <div className="mt-1.5 truncate text-cyan-100/75">{strategyLabel(strategy)}</div>
-            <div className="mt-0.5 font-mono text-[10px] text-cyan-100/55">#{compactId(trade?.correlation?.order_id)}</div>
-            <div data-active-trade-lifecycle-strip className="mt-2 flex items-center justify-between gap-1 border-t border-cyan-300/15 pt-2">
-              {TRADE_STAGES.map((stage) => {
-                const rank = STAGE_RANK[stage];
-                const isCurrent = currentState === stage;
-                const isReached = currentRank >= rank || observedStates.has(stage);
-                return (
-                  <div key={stage} className="min-w-0 flex-1 text-center" title={stageLabel(stage, locale)}>
-                    <div aria-hidden="true" className={isCurrent ? "text-emerald-200" : isReached ? "text-cyan-200/80" : "text-cyan-100/25"}>{isCurrent ? "●" : isReached ? "✓" : "○"}</div>
-                    <div className="mt-0.5 truncate text-[8px] text-cyan-100/50">{stageLabel(stage, locale)}</div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        ) : null}
       </div>
 
       {expanded ? (
@@ -378,8 +352,35 @@ export function ActiveTradePanel() {
         >
           {status === "error" ? <div className="text-red-200">{labels.offline}</div> : (
             <>
+              <section data-active-trade-summary>
+                <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                  <span className="text-cyan-100/55">{labels.currentState}</span><span className="font-semibold text-emerald-200">{stateText}</span>
+                  <span className="text-cyan-100/55">{labels.strategy}</span><span>{strategyLabel(strategy)}</span>
+                  <span className="text-cyan-100/55">{labels.symbol}</span><span>{symbol}</span>
+                  <span className="text-cyan-100/55">{labels.side}</span><span>{side}</span>
+                  <span className="text-cyan-100/55">{labels.orderId}</span><span className="min-w-0 truncate font-mono" title={trade?.correlation?.order_id ?? undefined}>{compactId(trade?.correlation?.order_id)}</span>
+                </div>
+              </section>
+
+              <section data-active-trade-lifecycle-strip className="mt-2 border-t border-cyan-300/20 pt-2">
+                <div className="mb-1 font-medium text-cyan-100/80">{labels.lifecycle}</div>
+                <div className="flex items-center justify-between gap-1">
+                  {TRADE_STAGES.map((stage) => {
+                    const rank = STAGE_RANK[stage];
+                    const isCurrent = currentState === stage;
+                    const isReached = currentRank >= rank || observedStates.has(stage);
+                    return (
+                      <div key={stage} className="min-w-0 flex-1 text-center" title={stageLabel(stage, locale)}>
+                        <div aria-hidden="true" className={isCurrent ? "text-emerald-200" : isReached ? "text-cyan-200/80" : "text-cyan-100/25"}>{isCurrent ? "●" : isReached ? "✓" : "○"}</div>
+                        <div className="mt-0.5 truncate text-[8px] text-cyan-100/50">{stageLabel(stage, locale)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
               {trade ? (
-                <section data-trade-correlation-details>
+                <section data-trade-correlation-details className="mt-2 border-t border-cyan-300/20 pt-2">
                   <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
                     <span className="text-cyan-100/55">{labels.tradeId}</span><span className="min-w-0 truncate font-mono" title={trade.correlation?.trade_id ?? undefined}>{compactId(trade.correlation?.trade_id)}</span>
                     <span className="text-cyan-100/55">{labels.owner}</span><span>{trade.agent_id ?? "-"}</span>
@@ -389,7 +390,7 @@ export function ActiveTradePanel() {
                 </section>
               ) : null}
 
-              <section data-live-market-metrics className={trade ? "mt-2 border-t border-cyan-300/20 pt-2" : ""}>
+              <section data-live-market-metrics className="mt-2 border-t border-cyan-300/20 pt-2">
                 <div className="mb-1 font-medium text-cyan-100/80">{labels.market}</div>
                 <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
                   <span className="text-cyan-100/55">{labels.price}</span><span className="font-semibold text-emerald-200">{formatNumber(market.price, 2)}</span>
