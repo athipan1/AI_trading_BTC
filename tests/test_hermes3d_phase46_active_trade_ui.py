@@ -57,4 +57,4 @@ def test_phase46_panel_is_mobile_bounded_and_collapsible() -> None:
     assert "aria-expanded={expanded}" in panel_source
     assert "max-h-[min(66dvh,34rem)]" in panel_source
     assert "[data-active-trade-panel]" in css_source
-    assert "max-height: min(52dvh, 26rem)" in css_source
+    assert "max-height: min(38dvh, 20rem)" in css_source
