@@ -4,10 +4,11 @@ import json
 import logging
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, time as clock_time
+from datetime import datetime
+from datetime import time as clock_time
 from pathlib import Path
-from typing import Callable
 from zoneinfo import ZoneInfo
 
 LOGGER = logging.getLogger(__name__)
@@ -105,6 +106,11 @@ class DailyResearchScheduler:
             return_code = executor(command)
 
         result = "SUCCESS" if return_code == 0 else "FAILED"
+        last_run_local_date = (
+            current.date().isoformat()
+            if return_code == 0
+            else state.get("last_run_local_date")
+        )
         self.write_state(
             state_path,
             {
@@ -117,7 +123,7 @@ class DailyResearchScheduler:
                 "last_result": result,
                 # Mark a day complete only after a successful runner. A failed
                 # attempt remains eligible for retry on the next poll.
-                "last_run_local_date": current.date().isoformat() if return_code == 0 else state.get("last_run_local_date"),
+                "last_run_local_date": last_run_local_date,
             },
         )
         return result
