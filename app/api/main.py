@@ -19,6 +19,7 @@ from app.monitoring.binance_fill_reconciler import BinanceSpotFillSource, Positi
 from app.monitoring.position_store import PositionStore
 from app.monitoring.trade_path_observer import TradePathObserver
 from app.research.historical_store import HistoricalResearchStore
+from app.research.promotion_observability import PromotionGateObservability
 from app.research.router import build_research_router
 from app.risk.engine import RiskEngine
 from app.strategies.baseline import BaselineStrategy
@@ -45,6 +46,10 @@ hermes3d_journal = Hermes3DEventJournal(settings.hermes3d_event_journal)
 hermes3d_spot_positions = PositionStore(settings.hermes3d_spot_position_store)
 hermes3d_futures_positions = PositionStore(settings.hermes3d_futures_position_store)
 research_historical_trades = HistoricalResearchStore(settings.research_historical_trade_store)
+research_promotion = PromotionGateObservability(
+    settings.research_promotion_gate_report,
+    stale_after_seconds=settings.research_promotion_stale_after_seconds,
+)
 phase41_validation_positions = PositionStore(settings.phase41_validation_position_store)
 hermes3d_auto_state_paths = {
     "baseline": settings.hermes3d_baseline_state_store,
@@ -85,6 +90,7 @@ app.include_router(
         hermes3d_projection,
         hermes3d_events,
         analytics_reader=hermes3d_analytics,
+        promotion_reader=research_promotion,
         validation_simulator=hermes3d_validation_simulator,
         validation_simulator_enabled=settings.hermes3d_validation_simulator_enabled,
     )
@@ -94,6 +100,7 @@ app.include_router(
         spot_position_store=hermes3d_spot_positions,
         futures_position_store=hermes3d_futures_positions,
         historical_trade_store=research_historical_trades,
+        promotion_observability=research_promotion,
     )
 )
 
