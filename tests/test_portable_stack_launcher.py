@@ -5,6 +5,7 @@ LAUNCHER = ROOT / "scripts/btc-stack.sh"
 INSTALLER = ROOT / "scripts/install_btc_commands.sh"
 RUNTIME_COMPOSE = ROOT / "docker-compose.runtime.yml"
 HERMES_COMPOSE = ROOT / "docker-compose.hermes3d.yml"
+HERMES_DOCKERFILE = ROOT / "deploy/hermes3d/Dockerfile"
 ENV_EXAMPLE = ROOT / ".env.example"
 
 
@@ -49,6 +50,66 @@ def test_termux_hermes_tracks_the_real_node_server_pid() -> None:
     assert "failed to discover node server PID" in source
     assert "termux_stop_hermes" in source
     assert "pkill -f '^node server/index.js$'" in source
+
+
+def test_phase463_office_commands_are_installed_and_dispatched() -> None:
+    launcher = LAUNCHER.read_text(encoding="utf-8")
+    installer = INSTALLER.read_text(encoding="utf-8")
+
+    commands = (
+        "btc-office-start",
+        "btc-office-stop",
+        "btc-office-restart",
+        "btc-office-status",
+        "btc-office-rebuild",
+    )
+    for command in commands:
+        assert command in launcher
+        assert command in installer
+
+    assert "termux:office-start" in launcher
+    assert "termux:office-stop" in launcher
+    assert "termux:office-restart" in launcher
+    assert "termux:office-status" in launcher
+    assert "termux:office-rebuild" in launcher
+
+
+def test_phase463_rebuild_uses_staging_healthcheck_and_rollback() -> None:
+    source = LAUNCHER.read_text(encoding="utf-8")
+
+    assert 'staging_dir="${HERMES3D_RUNTIME_DIR}.next"' in source
+    assert 'backup_dir="${HERMES3D_RUNTIME_DIR}.previous"' in source
+    assert "termux_prepare_hermes_staging" in source
+    assert "termux_swap_hermes_runtime" in source
+    assert "termux_restore_hermes_runtime" in source
+    assert "Hermes3D health check failed; restoring previous runtime." in source
+    assert "http://127.0.0.1:3000/office" in source
+    assert "cp -a '$REPO_ROOT/deploy/hermes3d/overlay/.'" in source
+    assert "npm ci" in source
+    assert "npm run build" in source
+
+
+def test_phase463_termux_rebuild_does_not_restart_trading_processes() -> None:
+    source = LAUNCHER.read_text(encoding="utf-8")
+    rebuild = source.split("termux_office_rebuild() {", 1)[1].split("\n}\n\ntermux_start()", 1)[0]
+
+    for trading_process in (
+        "spot-auto",
+        "futures-short",
+        "spot-monitor",
+        "hermes3d-sidecar",
+        "trading-runtime",
+        "phase562-scheduler",
+    ):
+        assert trading_process not in rebuild
+
+
+def test_phase463_termux_ref_matches_pinned_docker_ref() -> None:
+    launcher = LAUNCHER.read_text(encoding="utf-8")
+    dockerfile = HERMES_DOCKERFILE.read_text(encoding="utf-8")
+    pinned_ref = dockerfile.split("ARG HERMES3D_REF=", 1)[1].splitlines()[0].strip()
+
+    assert f'HERMES3D_REF="${{HERMES3D_REF:-{pinned_ref}}}"' in launcher
 
 
 def test_installer_exposes_commands_from_any_directory() -> None:
