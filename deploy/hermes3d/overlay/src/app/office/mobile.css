@@ -50,6 +50,23 @@
     overflow: hidden;
   }
 
+  /* Phase 4.6.5: collapsed mobile HUD prioritizes current trade state over history. */
+  [data-active-trade-hud]:has(button[aria-expanded="false"]) {
+    max-height: 6.25rem;
+  }
+
+  [data-active-trade-hud]:has(button[aria-expanded="false"]) [data-active-trade-lifecycle-strip] {
+    display: none;
+  }
+
+  [data-active-trade-hud]:has(button[aria-expanded="false"]) > div:first-child {
+    align-items: center;
+  }
+
+  [data-active-trade-hud]:has(button[aria-expanded="false"]) button[aria-controls="active-trade-panel-body"] {
+    min-height: 2.5rem;
+  }
+
   [data-active-trade-panel] #active-trade-panel-body {
     max-height: min(38dvh, 20rem) !important;
   }
@@ -170,6 +187,10 @@
     letter-spacing: 0.06em;
   }
 
+  [data-active-trade-hud]:has(button[aria-expanded="false"]) {
+    max-height: 5.75rem;
+  }
+
   [data-active-trade-panel] #active-trade-panel-body {
     max-height: min(34dvh, 17rem) !important;
   }
@@ -203,6 +224,10 @@
   [data-active-trade-panel] {
     top: 0.5rem !important;
     width: min(48vw, 22.5rem) !important;
+  }
+
+  [data-active-trade-hud]:has(button[aria-expanded="false"]) {
+    max-height: 5.5rem;
   }
 
   [data-active-trade-panel] #active-trade-panel-body {
