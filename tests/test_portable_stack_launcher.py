@@ -52,6 +52,44 @@ def test_termux_hermes_tracks_the_real_node_server_pid() -> None:
     assert "pkill -f '^node server/index.js$'" in source
 
 
+def test_phase4631_detects_termux_proot_guest_and_avoids_nested_login() -> None:
+    source = LAUNCHER.read_text(encoding="utf-8")
+
+    assert "is_termux_proot_guest" in source
+    assert "hermes_guest_exec" in source
+    assert "[[ -x /usr/bin/bash ]]" in source
+    assert "^ID=(ubuntu|debian)$" in source
+    assert "/data/data/com.termux/files/usr" in source
+    assert 'if is_termux_proot_guest; then\n    bash -lc "$guest_command"' in source
+    assert 'elif is_termux || is_termux_proot_guest; then' in source
+
+
+def test_phase4631_routes_office_guest_operations_through_context_helper() -> None:
+    source = LAUNCHER.read_text(encoding="utf-8")
+
+    assert 'hermes_guest_exec "pgrep -f \'^node server/index.js$\'' in source
+    assert 'hermes_guest_exec "pkill -f \'^node server/index.js$\'' in source
+
+    for function_name in (
+        "termux_prepare_hermes_staging",
+        "termux_swap_hermes_runtime",
+        "termux_restore_hermes_runtime",
+        "termux_cleanup_hermes_backup",
+    ):
+        body = source.split(f"{function_name}() {{", 1)[1].split("\n}\n", 1)[0]
+        assert "hermes_guest_exec" in body
+        assert "proot-distro login ubuntu" not in body
+
+
+def test_phase4631_start_uses_direct_bash_inside_existing_guest() -> None:
+    source = LAUNCHER.read_text(encoding="utf-8")
+    body = source.split("termux_start_hermes() {", 1)[1].split("\n}\n\ntermux_stop_hermes", 1)[0]
+
+    assert "if is_termux_proot_guest; then" in body
+    assert 'nohup bash -lc "$start_command"' in body
+    assert 'nohup proot-distro login ubuntu -- bash -lc "$start_command"' in body
+
+
 def test_phase463_office_commands_are_installed_and_dispatched() -> None:
     launcher = LAUNCHER.read_text(encoding="utf-8")
     installer = INSTALLER.read_text(encoding="utf-8")
