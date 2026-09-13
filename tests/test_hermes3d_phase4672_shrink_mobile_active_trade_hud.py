@@ -16,7 +16,10 @@ def test_phase4672_collapsed_mobile_panel_shrinks_to_content() -> None:
 def test_phase4672_trade_identity_does_not_force_full_panel_width() -> None:
     css = MOBILE_CSS.read_text(encoding="utf-8")
 
-    identity_selector = '[data-active-trade-hud]:has(button[aria-expanded="false"]) > div:first-child > div:first-child'
+    identity_selector = (
+        '[data-active-trade-hud]:has(button[aria-expanded="false"]) '
+        "> div:first-child > div:first-child"
+    )
     assert identity_selector in css
     assert "width: auto" in css
     assert "max-width: 100%" in css
