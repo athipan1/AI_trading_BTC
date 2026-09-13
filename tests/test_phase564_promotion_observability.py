@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import json
-import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -12,9 +11,6 @@ from app.integrations.hermes3d.router import build_hermes3d_router
 from app.monitoring.position_store import PositionStore
 from app.research.promotion_observability import PromotionGateObservability
 from app.research.router import build_research_router
-
-
-NOW = datetime(2026, 9, 13, 13, 0, tzinfo=UTC)
 
 
 def _report() -> dict[str, object]:
@@ -63,17 +59,13 @@ def _report() -> dict[str, object]:
     }
 
 
-def _write_report(path: Path, *, age_seconds: float = 0.0) -> None:
+def _write_report(path: Path) -> datetime:
     path.write_text(json.dumps(_report()), encoding="utf-8")
-    timestamp = NOW.timestamp() - age_seconds
-    os.utime(path, (timestamp, timestamp))
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
 
 
 def test_missing_artifact_is_operational_not_strategy_failure(tmp_path: Path) -> None:
-    reader = PromotionGateObservability(
-        tmp_path / "missing.json",
-        now_factory=lambda: NOW,
-    )
+    reader = PromotionGateObservability(tmp_path / "missing.json")
 
     payload = reader.snapshot()
 
@@ -86,8 +78,8 @@ def test_missing_artifact_is_operational_not_strategy_failure(tmp_path: Path) ->
 def test_invalid_artifact_is_reported_without_recomputing_gate(tmp_path: Path) -> None:
     path = tmp_path / "phase563.json"
     path.write_text("{broken", encoding="utf-8")
-    os.utime(path, (NOW.timestamp(), NOW.timestamp()))
-    reader = PromotionGateObservability(path, now_factory=lambda: NOW)
+    modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+    reader = PromotionGateObservability(path, now_factory=lambda: modified_at)
 
     payload = reader.snapshot()
 
@@ -98,8 +90,11 @@ def test_invalid_artifact_is_reported_without_recomputing_gate(tmp_path: Path) -
 
 def test_healthy_projection_preserves_authoritative_gate_decision(tmp_path: Path) -> None:
     path = tmp_path / "phase563.json"
-    _write_report(path, age_seconds=60)
-    reader = PromotionGateObservability(path, now_factory=lambda: NOW)
+    modified_at = _write_report(path)
+    reader = PromotionGateObservability(
+        path,
+        now_factory=lambda: modified_at + timedelta(seconds=60),
+    )
 
     payload = reader.snapshot()
 
@@ -123,11 +118,11 @@ def test_healthy_projection_preserves_authoritative_gate_decision(tmp_path: Path
 
 def test_stale_artifact_is_operational_state_only(tmp_path: Path) -> None:
     path = tmp_path / "phase563.json"
-    _write_report(path, age_seconds=200)
+    modified_at = _write_report(path)
     reader = PromotionGateObservability(
         path,
         stale_after_seconds=100,
-        now_factory=lambda: NOW,
+        now_factory=lambda: modified_at + timedelta(seconds=200),
     )
 
     payload = reader.snapshot()
@@ -139,8 +134,8 @@ def test_stale_artifact_is_operational_state_only(tmp_path: Path) -> None:
 
 def test_research_endpoint_is_read_only_projection(tmp_path: Path) -> None:
     path = tmp_path / "phase563.json"
-    _write_report(path)
-    reader = PromotionGateObservability(path, now_factory=lambda: NOW)
+    modified_at = _write_report(path)
+    reader = PromotionGateObservability(path, now_factory=lambda: modified_at)
     app = FastAPI()
     app.include_router(
         build_research_router(
@@ -169,8 +164,8 @@ class _HermesReader:
 
 def test_hermes_state_exposes_same_read_only_promotion_projection(tmp_path: Path) -> None:
     path = tmp_path / "phase563.json"
-    _write_report(path)
-    reader = PromotionGateObservability(path, now_factory=lambda: NOW)
+    modified_at = _write_report(path)
+    reader = PromotionGateObservability(path, now_factory=lambda: modified_at)
     app = FastAPI()
     app.include_router(build_hermes3d_router(_HermesReader(), promotion_reader=reader))
 
