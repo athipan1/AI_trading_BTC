@@ -145,10 +145,6 @@
     max-width: 100%;
   }
 
-  [data-office-chat-session] button {
-    touch-action: manipulation;
-  }
-
   [data-office-chat-toggle] {
     align-self: flex-start;
     min-height: 2.75rem;
