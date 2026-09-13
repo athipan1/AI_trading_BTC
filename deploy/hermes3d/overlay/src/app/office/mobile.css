@@ -58,6 +58,102 @@
     line-height: 1.1;
   }
 
+  /* Phase 4.6.4: turn the desktop Agents split pane into a phone-first workspace. */
+  [data-office-chat-dock] {
+    left: 0.5rem !important;
+    right: 0.5rem !important;
+    bottom: calc(3.75rem + env(safe-area-inset-bottom)) !important;
+    align-items: stretch !important;
+    gap: 0.5rem !important;
+    max-width: none !important;
+  }
+
+  [data-office-chat-workspace] {
+    width: auto !important;
+    height: min(68dvh, 36rem) !important;
+    max-height: calc(100dvh - 9rem - env(safe-area-inset-bottom)) !important;
+    flex-direction: column !important;
+    border-radius: 0.75rem !important;
+  }
+
+  [data-office-chat-roster] {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: 5.25rem;
+    max-height: 8.75rem;
+    flex-direction: row !important;
+    align-items: stretch;
+    border-right: 0 !important;
+    border-bottom: 1px solid rgb(255 255 255 / 0.1) !important;
+    overflow: hidden;
+  }
+
+  [data-office-chat-roster] > div:first-child {
+    width: 5.5rem;
+    min-width: 5.5rem;
+    flex-direction: column;
+    align-items: flex-start !important;
+    justify-content: center !important;
+    border-bottom: 0 !important;
+    border-right: 1px solid rgb(255 255 255 / 0.1);
+  }
+
+  [data-office-chat-roster] > button {
+    display: none !important;
+  }
+
+  [data-office-chat-roster] > div:last-child {
+    display: flex !important;
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  [data-office-chat-roster] > div:last-child > button {
+    width: auto !important;
+    min-width: max-content;
+    flex: 0 0 auto;
+    border-right: 1px solid rgb(255 255 255 / 0.08);
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+  }
+
+  [data-office-chat-roster] > div:last-child > div {
+    display: flex !important;
+    min-width: max-content;
+    flex-direction: row !important;
+    align-items: center;
+    gap: 0.5rem !important;
+    padding: 0.5rem !important;
+  }
+
+  [data-office-chat-session] {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+  }
+
+  [data-office-chat-session] select,
+  [data-office-chat-session] textarea,
+  [data-office-chat-session] input {
+    max-width: 100%;
+  }
+
+  [data-office-chat-session] button {
+    touch-action: manipulation;
+  }
+
+  [data-office-chat-toggle] {
+    align-self: flex-start;
+    min-height: 2.75rem;
+  }
+
   /* Give Hermes3D exclusive control of drag/pinch gestures inside the 3D viewport. */
   canvas {
     touch-action: none;
@@ -85,6 +181,22 @@
   [data-active-trade-lifecycle-strip] > div > div:last-child {
     font-size: 0;
   }
+
+  [data-office-chat-workspace] {
+    height: min(64dvh, 33rem) !important;
+  }
+
+  [data-office-chat-roster] {
+    min-height: 4.75rem;
+    max-height: 7.5rem;
+  }
+
+  [data-office-chat-roster] > div:first-child {
+    width: 4.75rem;
+    min-width: 4.75rem;
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+  }
 }
 
 @media (orientation: landscape) and (max-height: 520px) {
@@ -99,6 +211,16 @@
 
   [data-active-trade-panel] #active-trade-panel-body {
     max-height: 58dvh !important;
+  }
+
+  [data-office-chat-workspace] {
+    height: min(72dvh, 25rem) !important;
+    max-height: calc(100dvh - 4.75rem - env(safe-area-inset-bottom)) !important;
+  }
+
+  [data-office-chat-roster] {
+    min-height: 4.25rem;
+    max-height: 5.75rem;
   }
 
   section.pointer-events-auto.fixed.bottom-3.left-3.z-30 {
