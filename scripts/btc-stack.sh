@@ -40,6 +40,30 @@ is_termux() {
   [[ "${PREFIX:-}" == *"com.termux"* ]] || [[ "${HOME:-}" == "/data/data/com.termux/"* ]]
 }
 
+is_termux_proot_guest() {
+  [[ -x /usr/bin/bash ]] || return 1
+  [[ -f /etc/os-release ]] || return 1
+  grep -Eq '^ID=(ubuntu|debian)$' /etc/os-release || return 1
+  [[ -d /data/data/com.termux/files/usr ]] || return 1
+}
+
+require_proot_distro() {
+  command -v proot-distro >/dev/null 2>&1 || {
+    echo "proot-distro is required for Hermes3D on Termux host." >&2
+    return 2
+  }
+}
+
+hermes_guest_exec() {
+  local guest_command="$1"
+  if is_termux_proot_guest; then
+    bash -lc "$guest_command"
+    return
+  fi
+  require_proot_distro
+  proot-distro login ubuntu -- bash -lc "$guest_command"
+}
+
 has_docker_compose() {
   command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1
 }
@@ -51,7 +75,7 @@ backend() {
     auto)
       if has_docker_compose; then
         printf 'docker\n'
-      elif is_termux; then
+      elif is_termux || is_termux_proot_guest; then
         printf 'termux\n'
       else
         echo "No supported runtime found. Install Docker Compose or set BTC_STACK_BACKEND." >&2
@@ -173,9 +197,7 @@ termux_start_research_scheduler() {
 }
 
 hermes3d_node_pid() {
-  command -v proot-distro >/dev/null 2>&1 || return 1
-  proot-distro login ubuntu -- bash -lc \
-    "pgrep -f '^node server/index.js$' | head -n 1" 2>/dev/null
+  hermes_guest_exec "pgrep -f '^node server/index.js$' | head -n 1" 2>/dev/null
 }
 
 refresh_hermes3d_pid() {
@@ -192,23 +214,29 @@ refresh_hermes3d_pid() {
 
 termux_start_hermes() {
   local launcher_pid attempt
+  local start_command
   mkdir -p "$LOG_DIR" "$PID_DIR"
   if refresh_hermes3d_pid; then
     echo "hermes3d-office: already running PID=$(cat "$PID_DIR/hermes3d-office.pid")"
     return
   fi
-  command -v proot-distro >/dev/null 2>&1 || {
-    echo "proot-distro is required for Hermes3D on Termux." >&2
-    exit 2
-  }
-  nohup proot-distro login ubuntu -- bash -lc "
+
+  start_command="
     cd '$HERMES3D_RUNTIME_DIR'
     export HERMES3D_GATEWAY_URL=http://127.0.0.1:8000
     export HERMES3D_GATEWAY_ADAPTER_TYPE=custom
     export AI_TRADING_RUNTIME_URL=http://127.0.0.1:8000
     export CUSTOM_RUNTIME_ALLOWLIST=127.0.0.1,localhost
     exec npm start
-  " > "$LOG_DIR/hermes3d-office.log" 2>&1 &
+  "
+
+  if is_termux_proot_guest; then
+    nohup bash -lc "$start_command" > "$LOG_DIR/hermes3d-office.log" 2>&1 &
+  else
+    require_proot_distro
+    nohup proot-distro login ubuntu -- bash -lc "$start_command" \
+      > "$LOG_DIR/hermes3d-office.log" 2>&1 &
+  fi
   launcher_pid=$!
 
   for attempt in $(seq 1 20); do
@@ -229,10 +257,7 @@ termux_stop_hermes() {
     pid="$(cat "$PID_DIR/hermes3d-office.pid")"
     kill "$pid" 2>/dev/null || true
   fi
-  if command -v proot-distro >/dev/null 2>&1; then
-    proot-distro login ubuntu -- bash -lc \
-      "pkill -f '^node server/index.js$' 2>/dev/null || true" || true
-  fi
+  hermes_guest_exec "pkill -f '^node server/index.js$' 2>/dev/null || true" || true
   rm -f "$PID_DIR/hermes3d-office.pid"
 }
 
@@ -249,12 +274,7 @@ termux_office_status() {
 
 termux_prepare_hermes_staging() {
   local staging_dir="${HERMES3D_RUNTIME_DIR}.next"
-  command -v proot-distro >/dev/null 2>&1 || {
-    echo "proot-distro is required for Hermes3D on Termux." >&2
-    return 2
-  }
-
-  proot-distro login ubuntu -- bash -lc "
+  hermes_guest_exec "
     set -euo pipefail
     command -v git >/dev/null
     command -v node >/dev/null
@@ -275,7 +295,7 @@ termux_prepare_hermes_staging() {
 termux_swap_hermes_runtime() {
   local staging_dir="${HERMES3D_RUNTIME_DIR}.next"
   local backup_dir="${HERMES3D_RUNTIME_DIR}.previous"
-  proot-distro login ubuntu -- bash -lc "
+  hermes_guest_exec "
     set -euo pipefail
     rm -rf '$backup_dir'
     if [[ -d '$HERMES3D_RUNTIME_DIR' ]]; then
@@ -287,7 +307,7 @@ termux_swap_hermes_runtime() {
 
 termux_restore_hermes_runtime() {
   local backup_dir="${HERMES3D_RUNTIME_DIR}.previous"
-  proot-distro login ubuntu -- bash -lc "
+  hermes_guest_exec "
     set -euo pipefail
     rm -rf '$HERMES3D_RUNTIME_DIR'
     if [[ -d '$backup_dir' ]]; then
@@ -298,7 +318,7 @@ termux_restore_hermes_runtime() {
 
 termux_cleanup_hermes_backup() {
   local backup_dir="${HERMES3D_RUNTIME_DIR}.previous"
-  proot-distro login ubuntu -- bash -lc "rm -rf '$backup_dir'" || true
+  hermes_guest_exec "rm -rf '$backup_dir'" || true
 }
 
 termux_office_rebuild() {
@@ -413,7 +433,13 @@ termux_logs() {
 termux_doctor() {
   echo "backend=termux"
   command -v python >/dev/null && python --version || echo "python=MISSING"
-  command -v proot-distro >/dev/null && echo "proot-distro=OK" || echo "proot-distro=MISSING"
+  if is_termux_proot_guest; then
+    echo "termux-context=proot-guest"
+    echo "proot-distro=HOST_ONLY"
+  else
+    command -v proot-distro >/dev/null && echo "termux-context=host" || echo "termux-context=unknown"
+    command -v proot-distro >/dev/null && echo "proot-distro=OK" || echo "proot-distro=MISSING"
+  fi
   [[ -d "$HERMES3D_RUNTIME_DIR" ]] && echo "hermes-runtime=OK" || echo "hermes-runtime=CHECK_INSIDE_UBUNTU"
   [[ -f "$REPO_ROOT/.env" ]] && echo ".env=OK" || echo ".env=MISSING"
   [[ -f "$PHASE562_CONFIG" ]] && echo "phase562-config=OK" || echo "phase562-config=MISSING"
