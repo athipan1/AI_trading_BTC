@@ -15,14 +15,17 @@ def test_phase465_uses_existing_expand_contract() -> None:
     assert "data-active-trade-lifecycle-strip" in source
 
 
-def test_phase465_collapsed_mobile_hud_hides_lifecycle_strip() -> None:
+def test_phase4651_collapsed_mobile_hud_is_ultra_compact() -> None:
     css = MOBILE_CSS.read_text(encoding="utf-8")
 
     collapsed = '[data-active-trade-hud]:has(button[aria-expanded="false"])'
     assert collapsed in css
     assert f"{collapsed} [data-active-trade-lifecycle-strip]" in css
+    assert f"{collapsed} > div:nth-of-type(3)" in css
     assert "display: none;" in css
-    assert "max-height: 6.25rem" in css
+    assert "max-height: 4.75rem" in css
+    assert "padding: 0.5rem 0.625rem" in css
+    assert "min-height: 2rem" in css
 
 
 def test_phase465_expansion_keeps_details_available() -> None:
@@ -35,16 +38,16 @@ def test_phase465_expansion_keeps_details_available() -> None:
     assert "max-height: min(34dvh, 17rem)" in css
 
 
-def test_phase465_compacts_small_phone_and_landscape_views() -> None:
+def test_phase4651_compacts_small_phone_and_landscape_views() -> None:
     css = MOBILE_CSS.read_text(encoding="utf-8")
 
     assert "@media (max-width: 390px)" in css
-    assert "max-height: 5.75rem" in css
+    assert "max-height: 4.5rem" in css
     assert "@media (orientation: landscape) and (max-height: 520px)" in css
-    assert "max-height: 5.5rem" in css
+    assert "max-height: 4.25rem" in css
 
 
-def test_phase465_is_visual_only() -> None:
+def test_phase4651_is_visual_only() -> None:
     css = MOBILE_CSS.read_text(encoding="utf-8")
 
     forbidden = (

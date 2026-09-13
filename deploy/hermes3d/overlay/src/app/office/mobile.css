@@ -50,21 +50,33 @@
     overflow: hidden;
   }
 
-  /* Phase 4.6.5: collapsed mobile HUD prioritizes current trade state over history. */
+  /* Phase 4.6.5.1: collapsed mobile HUD is a glanceable status ribbon. */
   [data-active-trade-hud]:has(button[aria-expanded="false"]) {
-    max-height: 6.25rem;
+    max-height: 4.75rem;
+    padding: 0.5rem 0.625rem !important;
   }
 
-  [data-active-trade-hud]:has(button[aria-expanded="false"]) [data-active-trade-lifecycle-strip] {
+  [data-active-trade-hud]:has(button[aria-expanded="false"]) [data-active-trade-lifecycle-strip],
+  [data-active-trade-hud]:has(button[aria-expanded="false"]) > div:nth-of-type(3) {
     display: none;
   }
 
   [data-active-trade-hud]:has(button[aria-expanded="false"]) > div:first-child {
     align-items: center;
+    gap: 0.5rem;
+  }
+
+  [data-active-trade-hud]:has(button[aria-expanded="false"]) > div:nth-of-type(2) {
+    margin-top: 0.25rem;
+    padding-right: 5.5rem;
+    font-size: 0.625rem;
+    line-height: 0.875rem;
   }
 
   [data-active-trade-hud]:has(button[aria-expanded="false"]) button[aria-controls="active-trade-panel-body"] {
-    min-height: 2.5rem;
+    min-height: 2rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.625rem;
   }
 
   [data-active-trade-panel] #active-trade-panel-body {
@@ -188,7 +200,7 @@
   }
 
   [data-active-trade-hud]:has(button[aria-expanded="false"]) {
-    max-height: 5.75rem;
+    max-height: 4.5rem;
   }
 
   [data-active-trade-panel] #active-trade-panel-body {
@@ -227,7 +239,7 @@
   }
 
   [data-active-trade-hud]:has(button[aria-expanded="false"]) {
-    max-height: 5.5rem;
+    max-height: 4.25rem;
   }
 
   [data-active-trade-panel] #active-trade-panel-body {
