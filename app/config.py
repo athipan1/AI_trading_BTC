@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _default_research_promotion_gate_report() -> str:
+    deployed = Path("/workspace/research/phase563_promotion_gate.json")
+    if deployed.exists():
+        return str(deployed)
+    return "state/research/phase563_promotion_gate.json"
 
 
 class Settings(BaseSettings):
@@ -35,7 +43,9 @@ class Settings(BaseSettings):
     hermes3d_validation_simulator_enabled: bool = False
 
     research_historical_trade_store: str = "state/research/historical-trades.json"
-    research_promotion_gate_report: str = "state/research/phase563_promotion_gate.json"
+    research_promotion_gate_report: str = Field(
+        default_factory=_default_research_promotion_gate_report
+    )
     research_promotion_stale_after_seconds: float = Field(default=108_000.0, gt=0)
 
     phase41_validation_trade_enabled: bool = False
