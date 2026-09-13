@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     hermes3d_validation_simulator_enabled: bool = False
 
     research_historical_trade_store: str = "state/research/historical-trades.json"
+    research_promotion_gate_report: str = "state/research/phase563_promotion_gate.json"
+    research_promotion_stale_after_seconds: float = Field(default=108_000.0, gt=0)
 
     phase41_validation_trade_enabled: bool = False
     phase41_validation_position_store: str = "state/phase41-validation-positions.json"
