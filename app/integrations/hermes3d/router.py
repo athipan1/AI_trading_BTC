@@ -21,6 +21,10 @@ class Hermes3DAnalyticsReader(Protocol):
     def analytics(self) -> dict[str, Any]: ...
 
 
+class Hermes3DPromotionReader(Protocol):
+    def snapshot(self) -> dict[str, Any]: ...
+
+
 class Hermes3DValidationSimulator(Protocol):
     @classmethod
     def allowed_events(cls) -> tuple[str, ...]: ...
@@ -32,6 +36,7 @@ def build_hermes3d_router(
     reader: Hermes3DRuntimeReader,
     event_stream: Hermes3DEventStream | None = None,
     analytics_reader: Hermes3DAnalyticsReader | None = None,
+    promotion_reader: Hermes3DPromotionReader | None = None,
     validation_simulator: Hermes3DValidationSimulator | None = None,
     validation_simulator_enabled: bool = False,
 ) -> APIRouter:
@@ -53,6 +58,10 @@ def build_hermes3d_router(
             payload = dict(payload)
             payload.setdefault("active_trade", lifecycle.get("active_trade"))
             payload.setdefault("trade_lifecycles", lifecycle.get("trade_lifecycles", {}))
+
+        if promotion_reader is not None:
+            payload = dict(payload)
+            payload["research_promotion"] = promotion_reader.snapshot()
         return payload
 
     if analytics_reader is not None:
