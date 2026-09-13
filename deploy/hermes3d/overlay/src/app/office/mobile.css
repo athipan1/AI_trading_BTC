@@ -45,6 +45,12 @@
     width: min(92vw, 22.5rem) !important;
   }
 
+  /* Phase 4.6.7.2: collapsed HUD hugs its content instead of reserving dashboard width. */
+  [data-active-trade-panel]:has([data-active-trade-hud] button[aria-expanded="false"]) {
+    width: max-content !important;
+    max-width: calc(100vw - 1rem) !important;
+  }
+
   [data-active-trade-hud] {
     max-height: 9.75rem;
     overflow: hidden;
@@ -70,7 +76,8 @@
 
   [data-active-trade-hud]:has(button[aria-expanded="false"]) > div:first-child > div:first-child {
     order: 2;
-    width: 100%;
+    width: auto;
+    max-width: 100%;
     justify-content: flex-end;
     text-align: right;
   }
@@ -247,6 +254,11 @@
   [data-active-trade-panel] {
     top: 0.5rem !important;
     width: min(48vw, 22.5rem) !important;
+  }
+
+  [data-active-trade-panel]:has([data-active-trade-hud] button[aria-expanded="false"]) {
+    width: max-content !important;
+    max-width: calc(100vw - 1rem) !important;
   }
 
   [data-active-trade-hud]:has(button[aria-expanded="false"]) {
