@@ -15,6 +15,7 @@ RUNTIME_DIR="$REPO_ROOT/runtime"
 LOG_DIR="$RUNTIME_DIR/logs"
 PID_DIR="$RUNTIME_DIR/pids"
 HERMES3D_RUNTIME_DIR="${HERMES3D_RUNTIME_DIR:-/root/Hermes3D-runtime}"
+PHASE562_CONFIG="${PHASE562_CONFIG:-$HOME/.config/ai_trading_btc/phase562_daily.env}"
 
 COMPOSE_FILES=(
   -f "$REPO_ROOT/docker-compose.yml"
@@ -140,6 +141,16 @@ start_native() {
   echo "$name: started PID=$!"
 }
 
+termux_start_research_scheduler() {
+  if [[ ! -f "$PHASE562_CONFIG" ]]; then
+    echo "phase562-scheduler: config missing at $PHASE562_CONFIG" >&2
+    echo "Run scripts/install_phase562_daily_cron.sh once to create the Phase 5.6.2 runtime config." >&2
+    return 1
+  fi
+  start_native phase562-scheduler \
+    "python scripts/run_phase562_termux_scheduler.py --runner scripts/run_phase562_daily.sh --state runtime/phase562_daily_scheduler_state.json --timezone Asia/Bangkok --hour 7 --minute 10 --poll-seconds 60"
+}
+
 termux_start_hermes() {
   if pid_alive hermes3d-office; then
     echo "hermes3d-office: already running PID=$(cat "$PID_DIR/hermes3d-office.pid")"
@@ -172,6 +183,7 @@ termux_start() {
   start_native spot-monitor "python scripts/monitor_binance_testnet_positions.py --watch --interval-seconds ${BTC_TESTNET_MONITOR_INTERVAL_SECONDS:-30}"
   start_native hermes3d-sidecar "python scripts/run_hermes3d_sidecar.py --spot-log runtime/logs/spot-auto.log --futures-log runtime/logs/futures-short.log --event-journal state/hermes3d-events.jsonl --cursor-store state/hermes3d-sidecar-cursor.json --interval-seconds 2"
   start_native trading-runtime "python -m uvicorn app.api.main:app --host 0.0.0.0 --port 8000"
+  termux_start_research_scheduler
   termux_start_hermes
 
   sleep 3
@@ -181,7 +193,7 @@ termux_start() {
 termux_stop() {
   mkdir -p "$PID_DIR"
   local name pid_file pid
-  for name in spot-auto futures-short spot-monitor hermes3d-sidecar trading-runtime; do
+  for name in spot-auto futures-short spot-monitor hermes3d-sidecar trading-runtime phase562-scheduler; do
     pid_file="$PID_DIR/$name.pid"
     if [[ -f "$pid_file" ]]; then
       pid="$(cat "$pid_file" 2>/dev/null || true)"
@@ -203,7 +215,7 @@ termux_stop() {
 termux_status() {
   local name
   echo "backend=termux"
-  for name in spot-auto futures-short spot-monitor hermes3d-sidecar trading-runtime hermes3d-office; do
+  for name in spot-auto futures-short spot-monitor hermes3d-sidecar trading-runtime phase562-scheduler hermes3d-office; do
     if pid_alive "$name"; then
       echo "$name: RUNNING PID=$(cat "$PID_DIR/$name.pid")"
     else
@@ -223,6 +235,7 @@ termux_logs() {
     "$LOG_DIR/spot-monitor.log" \
     "$LOG_DIR/hermes3d-sidecar.log" \
     "$LOG_DIR/trading-runtime.log" \
+    "$LOG_DIR/phase562-scheduler.log" \
     "$LOG_DIR/hermes3d-office.log"
 }
 
@@ -232,6 +245,8 @@ termux_doctor() {
   command -v proot-distro >/dev/null && echo "proot-distro=OK" || echo "proot-distro=MISSING"
   [[ -d "$HERMES3D_RUNTIME_DIR" ]] && echo "hermes-runtime=OK" || echo "hermes-runtime=CHECK_INSIDE_UBUNTU"
   [[ -f "$REPO_ROOT/.env" ]] && echo ".env=OK" || echo ".env=MISSING"
+  [[ -f "$PHASE562_CONFIG" ]] && echo "phase562-config=OK" || echo "phase562-config=MISSING"
+  [[ -f "$REPO_ROOT/scripts/run_phase562_termux_scheduler.py" ]] && echo "phase562-scheduler=OK" || echo "phase562-scheduler=MISSING"
 }
 
 COMMAND="${1:-}"
