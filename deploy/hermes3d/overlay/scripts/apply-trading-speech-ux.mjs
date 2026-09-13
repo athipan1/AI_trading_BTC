@@ -89,3 +89,57 @@ for (const { label, before, after } of replacements) {
 
 fs.writeFileSync(target, source, "utf8");
 console.log(`Applied compact trading speech UX patch to ${target}`);
+
+const officeTarget = "src/features/office/screens/OfficeScreen.tsx";
+let officeSource = fs.readFileSync(officeTarget, "utf8");
+
+const officeReplacements = [
+  {
+    label: "mobile chat dock hook",
+    before:
+      '<div\n        className={`fixed bottom-3 z-30 flex flex-col items-end gap-2 ${sidebarOpen ? "right-84" : "right-3"} ${',
+    after:
+      '<div\n        data-office-chat-dock\n        className={`fixed bottom-3 z-30 flex flex-col items-end gap-2 ${sidebarOpen ? "right-84" : "right-3"} ${',
+  },
+  {
+    label: "mobile chat workspace hook",
+    before:
+      '<div\n            className="flex overflow-hidden rounded border border-white/10 bg-[#0e0a04] shadow-2xl"\n            style={{',
+    after:
+      '<div\n            data-office-chat-workspace\n            className="flex overflow-hidden rounded border border-white/10 bg-[#0e0a04] shadow-2xl"\n            style={{',
+  },
+  {
+    label: "mobile chat roster hook",
+    before:
+      '<div\n              className={`flex shrink-0 flex-col border-r border-white/10 transition-[width] ${',
+    after:
+      '<div\n              data-office-chat-roster\n              className={`flex shrink-0 flex-col border-r border-white/10 transition-[width] ${',
+  },
+  {
+    label: "mobile chat session hook",
+    before:
+      '<div className="flex min-w-0 flex-1 flex-col">\n              {focusedChatAgent ? (',
+    after:
+      '<div data-office-chat-session className="flex min-w-0 flex-1 flex-col">\n              {focusedChatAgent ? (',
+  },
+  {
+    label: "mobile chat toggle hook",
+    before:
+      '<button\n          type="button"\n          onClick={() => setChatOpen((prev) => !prev)}',
+    after:
+      '<button\n          data-office-chat-toggle\n          type="button"\n          onClick={() => setChatOpen((prev) => !prev)}',
+  },
+];
+
+for (const { label, before, after } of officeReplacements) {
+  if (officeSource.includes(after)) {
+    continue;
+  }
+  if (!officeSource.includes(before)) {
+    throw new Error(`Hermes3D mobile agents patch anchor not found: ${label}`);
+  }
+  officeSource = officeSource.replace(before, after);
+}
+
+fs.writeFileSync(officeTarget, officeSource, "utf8");
+console.log(`Applied mobile agents workspace hooks to ${officeTarget}`);
