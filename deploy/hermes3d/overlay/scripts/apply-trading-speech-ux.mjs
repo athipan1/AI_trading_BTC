@@ -95,6 +95,13 @@ let officeSource = fs.readFileSync(officeTarget, "utf8");
 
 const officeReplacements = [
   {
+    label: "agent activity inspector import",
+    before:
+      'import { AgentChatPanel } from "@/features/agents/components/AgentChatPanel";',
+    after:
+      'import { AgentChatPanel } from "@/features/agents/components/AgentChatPanel";\nimport { AgentLiveActivityInspector } from "@/features/trading/AgentLiveActivityInspector";',
+  },
+  {
     label: "mobile chat dock hook",
     before:
       '<div\n        className={`fixed bottom-3 z-30 flex flex-col items-end gap-2 ${sidebarOpen ? "right-84" : "right-3"} ${',
@@ -121,6 +128,20 @@ const officeReplacements = [
       '<div className="flex min-w-0 flex-1 flex-col">\n              {focusedChatAgent ? (',
     after:
       '<div data-office-chat-session className="flex min-w-0 flex-1 flex-col">\n              {focusedChatAgent ? (',
+  },
+  {
+    label: "agent activity inspector open",
+    before:
+      '              {focusedChatAgent ? (\n                <AgentChatPanel',
+    after:
+      '              {focusedChatAgent ? (\n                <>\n                  <AgentLiveActivityInspector agentId={focusedChatAgent.agentId} />\n                  <AgentChatPanel',
+  },
+  {
+    label: "agent activity inspector close",
+    before:
+      '                  onVoiceSend={handleVoiceSend}\n                />\n              ) : focusedRemoteChatTarget && focusedRemoteChatState ? (',
+    after:
+      '                  onVoiceSend={handleVoiceSend}\n                  />\n                </>\n              ) : focusedRemoteChatTarget && focusedRemoteChatState ? (',
   },
   {
     label: "mobile chat toggle hook",
