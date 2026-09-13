@@ -151,8 +151,26 @@ termux_start_research_scheduler() {
     "python scripts/run_phase562_termux_scheduler.py --runner scripts/run_phase562_daily.sh --state runtime/phase562_daily_scheduler_state.json --timezone Asia/Bangkok --hour 7 --minute 10 --poll-seconds 60"
 }
 
+hermes3d_node_pid() {
+  command -v proot-distro >/dev/null 2>&1 || return 1
+  proot-distro login ubuntu -- bash -lc \
+    "pgrep -f '^node server/index.js$' | head -n 1" 2>/dev/null
+}
+
+refresh_hermes3d_pid() {
+  local pid
+  pid="$(hermes3d_node_pid || true)"
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    printf '%s\n' "$pid" > "$PID_DIR/hermes3d-office.pid"
+    return 0
+  fi
+  rm -f "$PID_DIR/hermes3d-office.pid"
+  return 1
+}
+
 termux_start_hermes() {
-  if pid_alive hermes3d-office; then
+  local launcher_pid attempt
+  if refresh_hermes3d_pid; then
     echo "hermes3d-office: already running PID=$(cat "$PID_DIR/hermes3d-office.pid")"
     return
   fi
@@ -168,8 +186,31 @@ termux_start_hermes() {
     export CUSTOM_RUNTIME_ALLOWLIST=127.0.0.1,localhost
     exec npm start
   " > "$LOG_DIR/hermes3d-office.log" 2>&1 &
-  echo $! > "$PID_DIR/hermes3d-office.pid"
-  echo "hermes3d-office: started PID=$!"
+  launcher_pid=$!
+
+  for attempt in $(seq 1 20); do
+    if refresh_hermes3d_pid; then
+      echo "hermes3d-office: started PID=$(cat "$PID_DIR/hermes3d-office.pid") launcher=$launcher_pid"
+      return
+    fi
+    sleep 1
+  done
+
+  echo "hermes3d-office: failed to discover node server PID after launch PID=$launcher_pid" >&2
+  return 1
+}
+
+termux_stop_hermes() {
+  local pid
+  if refresh_hermes3d_pid; then
+    pid="$(cat "$PID_DIR/hermes3d-office.pid")"
+    kill "$pid" 2>/dev/null || true
+  fi
+  if command -v proot-distro >/dev/null 2>&1; then
+    proot-distro login ubuntu -- bash -lc \
+      "pkill -f '^node server/index.js$' 2>/dev/null || true" || true
+  fi
+  rm -f "$PID_DIR/hermes3d-office.pid"
 }
 
 termux_start() {
@@ -201,27 +242,25 @@ termux_stop() {
       rm -f "$pid_file"
     fi
   done
-  if command -v proot-distro >/dev/null 2>&1; then
-    proot-distro login ubuntu -- bash -lc "pkill -f 'node server/index.js' 2>/dev/null || true" || true
-  fi
-  if [[ -f "$PID_DIR/hermes3d-office.pid" ]]; then
-    pid="$(cat "$PID_DIR/hermes3d-office.pid" 2>/dev/null || true)"
-    [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
-    rm -f "$PID_DIR/hermes3d-office.pid"
-  fi
+  termux_stop_hermes
   echo "BTC stack stopped"
 }
 
 termux_status() {
   local name
   echo "backend=termux"
-  for name in spot-auto futures-short spot-monitor hermes3d-sidecar trading-runtime phase562-scheduler hermes3d-office; do
+  for name in spot-auto futures-short spot-monitor hermes3d-sidecar trading-runtime phase562-scheduler; do
     if pid_alive "$name"; then
       echo "$name: RUNNING PID=$(cat "$PID_DIR/$name.pid")"
     else
       echo "$name: STOPPED"
     fi
   done
+  if refresh_hermes3d_pid; then
+    echo "hermes3d-office: RUNNING PID=$(cat "$PID_DIR/hermes3d-office.pid")"
+  else
+    echo "hermes3d-office: STOPPED"
+  fi
   printf 'runtime: '
   curl -fsS --max-time 3 http://127.0.0.1:8000/health 2>/dev/null || echo "DOWN"
   printf '\noffice: '
