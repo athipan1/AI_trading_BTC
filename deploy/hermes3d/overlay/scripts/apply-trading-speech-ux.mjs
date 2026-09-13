@@ -94,6 +94,11 @@ const agentChatReplacements = [
     before: '              {renameError ? (\n                <div className="ui-text-danger mt-1 text-[11px]">{renameError}</div>\n              ) : null}\n            </div>',
     after: '              {renameError ? (\n                <div className="ui-text-danger mt-1 text-[11px]">{renameError}</div>\n              ) : null}\n              <AgentLiveActivityInspector agentId={agent.agentId} variant="inline" />\n            </div>',
   },
+  {
+    label: "hide empty chat intro card",
+    before: '<div className="ui-chat-assistant-card mt-2">\n          <div className="text-[14px] leading-[1.65] text-foreground">{title}</div>',
+    after: '<div className="ui-chat-assistant-card mt-2 hidden" data-trading-empty-chat-intro-hidden>\n          <div className="text-[14px] leading-[1.65] text-foreground">{title}</div>',
+  },
 ];
 for (const { label, before, after } of agentChatReplacements) {
   if (agentChatSource.includes(after)) continue;
@@ -101,4 +106,4 @@ for (const { label, before, after } of agentChatReplacements) {
   agentChatSource = agentChatSource.replace(before, after);
 }
 fs.writeFileSync(agentChatTarget, agentChatSource, "utf8");
-console.log(`Applied inline agent live status to ${agentChatTarget}`);
+console.log(`Applied inline agent live status and compact empty chat state to ${agentChatTarget}`);
