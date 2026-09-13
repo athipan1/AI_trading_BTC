@@ -39,6 +39,18 @@ def test_launcher_is_idempotent_for_native_processes() -> None:
     assert "runtime/pids" not in source or "PID_DIR" in source
 
 
+def test_termux_hermes_tracks_the_real_node_server_pid() -> None:
+    source = LAUNCHER.read_text(encoding="utf-8")
+
+    assert "hermes3d_node_pid" in source
+    assert "refresh_hermes3d_pid" in source
+    assert "pgrep -f '^node server/index.js$'" in source
+    assert 'printf \'%s\\n\' "$pid" > "$PID_DIR/hermes3d-office.pid"' in source
+    assert "failed to discover node server PID" in source
+    assert "termux_stop_hermes" in source
+    assert "pkill -f '^node server/index.js$'" in source
+
+
 def test_installer_exposes_commands_from_any_directory() -> None:
     source = INSTALLER.read_text(encoding="utf-8")
 
