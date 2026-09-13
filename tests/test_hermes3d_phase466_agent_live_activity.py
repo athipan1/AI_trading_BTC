@@ -52,14 +52,16 @@ def test_phase466_has_agent_specific_observability_without_execution() -> None:
         assert token not in source
 
 
-def test_phase466_patches_inspector_above_existing_agent_chat() -> None:
+def test_phase466_patches_inspector_into_existing_agent_header() -> None:
     source = PATCH.read_text(encoding="utf-8")
 
     assert 'AgentLiveActivityInspector } from "@/features/trading/AgentLiveActivityInspector"' in source
-    assert "<AgentLiveActivityInspector agentId={focusedChatAgent.agentId} />" in source
-    assert "<AgentChatPanel" in source
-    assert "agent activity inspector open" in source
-    assert "agent activity inspector close" in source
+    assert '<AgentLiveActivityInspector agentId={agent.agentId} variant="inline" />' in source
+    assert "agent live status header" in source
+    assert 'const agentChatTarget = "src/features/agents/components/AgentChatPanel.tsx"' in source
+    assert "focusedChatAgent.agentId" not in source
+    assert "agent activity inspector open" not in source
+    assert "agent activity inspector close" not in source
 
 
 def test_phase466_inspector_is_compact_by_default() -> None:
@@ -68,4 +70,4 @@ def test_phase466_inspector_is_compact_by_default() -> None:
     assert "const [expanded, setExpanded] = useState(false)" in source
     assert "aria-expanded={expanded}" in source
     assert "{expanded ? (" in source
-    assert "mx-3 mt-2" in source
+    assert 'variant === "inline"' in source
