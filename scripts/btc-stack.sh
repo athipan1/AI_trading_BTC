@@ -15,6 +15,8 @@ RUNTIME_DIR="$REPO_ROOT/runtime"
 LOG_DIR="$RUNTIME_DIR/logs"
 PID_DIR="$RUNTIME_DIR/pids"
 HERMES3D_RUNTIME_DIR="${HERMES3D_RUNTIME_DIR:-/root/Hermes3D-runtime}"
+HERMES3D_REF="${HERMES3D_REF:-beb76292747b816ef317aa6f9a3992e0014f81d9}"
+HERMES3D_REPO_URL="${HERMES3D_REPO_URL:-https://github.com/iamlukethedev/Hermes3D.git}"
 PHASE562_CONFIG="${PHASE562_CONFIG:-$HOME/.config/ai_trading_btc/phase562_daily.env}"
 
 COMPOSE_FILES=(
@@ -25,11 +27,12 @@ COMPOSE_FILES=(
 
 usage() {
   cat <<'EOF'
-Usage: btc-stack <start|stop|restart|status|logs|doctor>
+Usage: btc-stack <start|stop|restart|status|logs|doctor|office-start|office-stop|office-restart|office-status|office-rebuild>
 
-The installed aliases btc-start, btc-stop, and btc-status select the matching
-command automatically. Docker Compose is preferred on Linux/VPS. Existing
-Termux installations fall back to the native/proot runtime.
+The installed aliases btc-start, btc-stop, btc-status, btc-logs and
+btc-office-* select the matching command automatically. Docker Compose is
+preferred on Linux/VPS. Existing Termux installations fall back to the
+native/proot runtime.
 EOF
 }
 
@@ -122,6 +125,24 @@ docker_doctor() {
   docker_compose config --quiet && echo "compose=OK"
 }
 
+docker_office_start() {
+  docker_compose up -d --no-deps hermes3d
+}
+
+docker_office_stop() {
+  docker_compose stop hermes3d
+}
+
+docker_office_status() {
+  docker_compose ps hermes3d
+}
+
+docker_office_rebuild() {
+  docker_compose build hermes3d
+  docker_compose up -d --no-deps hermes3d
+  docker_office_status
+}
+
 pid_alive() {
   local name="$1" pid_file="$PID_DIR/$1.pid" pid
   [[ -f "$pid_file" ]] || return 1
@@ -159,6 +180,7 @@ hermes3d_node_pid() {
 
 refresh_hermes3d_pid() {
   local pid
+  mkdir -p "$PID_DIR"
   pid="$(hermes3d_node_pid || true)"
   if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
     printf '%s\n' "$pid" > "$PID_DIR/hermes3d-office.pid"
@@ -170,6 +192,7 @@ refresh_hermes3d_pid() {
 
 termux_start_hermes() {
   local launcher_pid attempt
+  mkdir -p "$LOG_DIR" "$PID_DIR"
   if refresh_hermes3d_pid; then
     echo "hermes3d-office: already running PID=$(cat "$PID_DIR/hermes3d-office.pid")"
     return
@@ -211,6 +234,115 @@ termux_stop_hermes() {
       "pkill -f '^node server/index.js$' 2>/dev/null || true" || true
   fi
   rm -f "$PID_DIR/hermes3d-office.pid"
+}
+
+termux_office_status() {
+  if refresh_hermes3d_pid; then
+    echo "hermes3d-office: RUNNING PID=$(cat "$PID_DIR/hermes3d-office.pid")"
+  else
+    echo "hermes3d-office: STOPPED"
+  fi
+  printf 'office: '
+  curl -fsS -o /dev/null --max-time 3 -w 'HTTP=%{http_code}\n' http://127.0.0.1:3000/office 2>/dev/null || echo "DOWN"
+  echo "hermes3d-ref: $HERMES3D_REF"
+}
+
+termux_prepare_hermes_staging() {
+  local staging_dir="${HERMES3D_RUNTIME_DIR}.next"
+  command -v proot-distro >/dev/null 2>&1 || {
+    echo "proot-distro is required for Hermes3D on Termux." >&2
+    return 2
+  }
+
+  proot-distro login ubuntu -- bash -lc "
+    set -euo pipefail
+    command -v git >/dev/null
+    command -v node >/dev/null
+    command -v npm >/dev/null
+    rm -rf '$staging_dir'
+    git clone '$HERMES3D_REPO_URL' '$staging_dir'
+    cd '$staging_dir'
+    git checkout '$HERMES3D_REF'
+    cp -a '$REPO_ROOT/deploy/hermes3d/overlay/.' '$staging_dir/'
+    node scripts/apply-trading-speech-ux.mjs
+    npm ci
+    npm run build
+    test -f package.json
+    test -f server/index.js
+  "
+}
+
+termux_swap_hermes_runtime() {
+  local staging_dir="${HERMES3D_RUNTIME_DIR}.next"
+  local backup_dir="${HERMES3D_RUNTIME_DIR}.previous"
+  proot-distro login ubuntu -- bash -lc "
+    set -euo pipefail
+    rm -rf '$backup_dir'
+    if [[ -d '$HERMES3D_RUNTIME_DIR' ]]; then
+      mv '$HERMES3D_RUNTIME_DIR' '$backup_dir'
+    fi
+    mv '$staging_dir' '$HERMES3D_RUNTIME_DIR'
+  "
+}
+
+termux_restore_hermes_runtime() {
+  local backup_dir="${HERMES3D_RUNTIME_DIR}.previous"
+  proot-distro login ubuntu -- bash -lc "
+    set -euo pipefail
+    rm -rf '$HERMES3D_RUNTIME_DIR'
+    if [[ -d '$backup_dir' ]]; then
+      mv '$backup_dir' '$HERMES3D_RUNTIME_DIR'
+    fi
+  "
+}
+
+termux_cleanup_hermes_backup() {
+  local backup_dir="${HERMES3D_RUNTIME_DIR}.previous"
+  proot-distro login ubuntu -- bash -lc "rm -rf '$backup_dir'" || true
+}
+
+termux_office_rebuild() {
+  local was_running=0 attempt
+  if refresh_hermes3d_pid; then
+    was_running=1
+  fi
+
+  echo "Building Hermes3D staging runtime at ref $HERMES3D_REF"
+  termux_prepare_hermes_staging
+
+  if [[ "$was_running" -eq 1 ]]; then
+    termux_stop_hermes
+  fi
+
+  termux_swap_hermes_runtime
+
+  if ! termux_start_hermes; then
+    echo "Hermes3D start failed; restoring previous runtime." >&2
+    termux_stop_hermes || true
+    termux_restore_hermes_runtime
+    if [[ "$was_running" -eq 1 ]]; then
+      termux_start_hermes || true
+    fi
+    return 1
+  fi
+
+  for attempt in $(seq 1 30); do
+    if curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:3000/office; then
+      termux_cleanup_hermes_backup
+      echo "hermes3d-office: rebuild complete"
+      termux_office_status
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "Hermes3D health check failed; restoring previous runtime." >&2
+  termux_stop_hermes || true
+  termux_restore_hermes_runtime
+  if [[ "$was_running" -eq 1 ]]; then
+    termux_start_hermes || true
+  fi
+  return 1
 }
 
 termux_start() {
@@ -294,6 +426,11 @@ case "$(basename "$0")" in
   btc-stop) COMMAND=stop ;;
   btc-status) COMMAND=status ;;
   btc-logs) COMMAND=logs ;;
+  btc-office-start) COMMAND=office-start ;;
+  btc-office-stop) COMMAND=office-stop ;;
+  btc-office-restart) COMMAND=office-restart ;;
+  btc-office-status) COMMAND=office-status ;;
+  btc-office-rebuild) COMMAND=office-rebuild ;;
 esac
 
 [[ -n "$COMMAND" ]] || { usage; exit 2; }
@@ -306,11 +443,21 @@ case "$BACKEND:$COMMAND" in
   docker:status) docker_status ;;
   docker:logs) docker_logs ;;
   docker:doctor) docker_doctor ;;
+  docker:office-start) docker_office_start ;;
+  docker:office-stop) docker_office_stop ;;
+  docker:office-restart) docker_office_stop; docker_office_start ;;
+  docker:office-status) docker_office_status ;;
+  docker:office-rebuild) docker_office_rebuild ;;
   termux:start) termux_start ;;
   termux:stop) termux_stop ;;
   termux:restart) termux_stop; termux_start ;;
   termux:status) termux_status ;;
   termux:logs) termux_logs ;;
   termux:doctor) termux_doctor ;;
+  termux:office-start) termux_start_hermes ;;
+  termux:office-stop) termux_stop_hermes ;;
+  termux:office-restart) termux_stop_hermes; termux_start_hermes ;;
+  termux:office-status) termux_office_status ;;
+  termux:office-rebuild) termux_office_rebuild ;;
   *) usage; exit 2 ;;
 esac
