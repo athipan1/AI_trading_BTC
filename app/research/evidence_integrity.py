@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any, Callable
 @dataclass(frozen=True)
 class EvidenceIntegrityConfig:
     boundary_iso: str = "2026-09-01T00:00:00+00:00"
+    warmup_hours: int = 288
     stale_after_seconds: float = 108_000.0
 
 
@@ -20,6 +22,7 @@ class EvidenceIntegrityAuditor:
     SCHEMA_VERSION = "evidence_integrity_schema_v1"
     STATE_SCHEMA_VERSION = "evidence_integrity_state_schema_v1"
     CHECKPOINT_SCHEMA_VERSION = "forward_oos_checkpoint_schema_v1"
+    OOS_STORE_SCHEMA_VERSION = "historical_research_store_v1"
     _PIN_FIELDS = (
         "manifest_hash",
         "policy_hash",
@@ -108,11 +111,12 @@ class EvidenceIntegrityAuditor:
         )
         temporary.replace(output_path)
 
-    def _expected_pin(self, manifest: dict[str, Any], checkpoint: dict[str, Any]) -> dict[str, Any]:
-        expected = {field: manifest.get(field) for field in self._PIN_FIELDS}
-        expected["boundary_iso"] = self.config.boundary_iso
-        expected["warmup_hours"] = checkpoint.get("frozen_pin", {}).get("warmup_hours")
-        return expected
+    def _expected_pin(self, manifest: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **{field: manifest.get(field) for field in self._PIN_FIELDS},
+            "boundary_iso": self.config.boundary_iso,
+            "warmup_hours": self.config.warmup_hours,
+        }
 
     def audit(
         self,
@@ -138,8 +142,9 @@ class EvidenceIntegrityAuditor:
 
         order_ids = [str(item.get("order_id") or "").strip() for item in trades]
         nonempty_order_ids = [value for value in order_ids if value]
+        order_id_counts = Counter(nonempty_order_ids)
         duplicate_order_ids = sorted(
-            order_id for order_id in set(nonempty_order_ids) if nonempty_order_ids.count(order_id) > 1
+            order_id for order_id, count in order_id_counts.items() if count > 1
         )
         missing_order_id_count = len(order_ids) - len(nonempty_order_ids)
 
@@ -148,11 +153,12 @@ class EvidenceIntegrityAuditor:
         before_boundary = [value for value in timestamps if value < boundary_ms]
         invalid_timestamp_count = sum(value <= 0 for value in timestamps)
 
+        oos_store_schema_ok = oos_store.get("schema_version") == self.OOS_STORE_SCHEMA_VERSION
         checkpoint_schema_ok = checkpoint.get("schema_version") == self.CHECKPOINT_SCHEMA_VERSION
         checkpoint_count = int(checkpoint.get("last_oos_trade_count", -1))
         store_count = len(trades)
         count_matches = checkpoint_count == store_count
-        expected_pin = self._expected_pin(manifest, checkpoint)
+        expected_pin = self._expected_pin(manifest)
         actual_pin = checkpoint.get("frozen_pin")
         frozen_pin_matches = actual_pin == expected_pin
 
@@ -191,6 +197,7 @@ class EvidenceIntegrityAuditor:
                 rollback_checks["immutable_existing_trades"] = not changed_existing_order_ids
 
         checks = {
+            "oos_store_schema": oos_store_schema_ok,
             "checkpoint_schema": checkpoint_schema_ok,
             "frozen_pin_matches_manifest": frozen_pin_matches,
             "checkpoint_count_matches_store": count_matches,
@@ -224,6 +231,7 @@ class EvidenceIntegrityAuditor:
                 "last_processed_until": last_processed_raw or None,
                 "age_seconds": age_seconds,
                 "boundary_iso": self.config.boundary_iso,
+                "warmup_hours": self.config.warmup_hours,
             },
             "violations": {
                 "duplicate_order_ids": duplicate_order_ids,
