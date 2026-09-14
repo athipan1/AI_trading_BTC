@@ -17,6 +17,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--state", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--boundary", default="2026-09-01T00:00:00+00:00")
+    parser.add_argument("--warmup-hours", type=int, default=288)
     parser.add_argument("--stale-after-seconds", type=float, default=108_000.0)
     return parser.parse_args()
 
@@ -26,6 +27,7 @@ def main() -> int:
     auditor = EvidenceIntegrityAuditor(
         config=EvidenceIntegrityConfig(
             boundary_iso=args.boundary,
+            warmup_hours=args.warmup_hours,
             stale_after_seconds=args.stale_after_seconds,
         )
     )
