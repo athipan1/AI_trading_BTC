@@ -4,8 +4,10 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.research.evidence_integrity import EvidenceIntegrityAuditor, EvidenceIntegrityConfig
-
+from app.research.evidence_integrity import (
+    EvidenceIntegrityAuditor,
+    EvidenceIntegrityConfig,
+)
 
 NOW = datetime(2026, 9, 14, 1, 0, tzinfo=UTC)
 BOUNDARY = "2026-09-01T00:00:00+00:00"
