@@ -74,6 +74,7 @@ def _auditor(*, stale_after_seconds: float = 108_000.0) -> EvidenceIntegrityAudi
     return EvidenceIntegrityAuditor(
         config=EvidenceIntegrityConfig(
             boundary_iso=BOUNDARY,
+            warmup_hours=288,
             stale_after_seconds=stale_after_seconds,
         ),
         now_factory=lambda: NOW,
@@ -138,7 +139,9 @@ def test_checkpoint_count_mismatch_fails_integrity(tmp_path: Path) -> None:
 def test_frozen_pin_drift_fails_integrity(tmp_path: Path) -> None:
     manifest, store, checkpoint = _paths(tmp_path)
     payload = _checkpoint()
-    payload["frozen_pin"]["policy_hash"] = "tampered"
+    frozen_pin = dict(payload["frozen_pin"])
+    frozen_pin["policy_hash"] = "tampered"
+    payload["frozen_pin"] = frozen_pin
     _write(checkpoint, payload)
 
     report, _ = _auditor().audit(
@@ -148,6 +151,44 @@ def test_frozen_pin_drift_fails_integrity(tmp_path: Path) -> None:
     )
 
     assert report["checks"]["frozen_pin_matches_manifest"] is False
+    assert report["state"] == "FAIL"
+
+
+def test_warmup_drift_fails_frozen_pin_integrity(tmp_path: Path) -> None:
+    manifest, store, checkpoint = _paths(tmp_path)
+    payload = _checkpoint()
+    frozen_pin = dict(payload["frozen_pin"])
+    frozen_pin["warmup_hours"] = 999
+    payload["frozen_pin"] = frozen_pin
+    _write(checkpoint, payload)
+
+    report, _ = _auditor().audit(
+        manifest_path=manifest,
+        oos_store_path=store,
+        checkpoint_path=checkpoint,
+    )
+
+    assert report["checks"]["frozen_pin_matches_manifest"] is False
+    assert report["integrity_ok"] is False
+
+
+def test_invalid_oos_store_schema_fails_integrity(tmp_path: Path) -> None:
+    manifest, store, checkpoint = _paths(tmp_path)
+    _write(
+        store,
+        {
+            "schema_version": "unexpected",
+            "trades": [_trade("a"), _trade("b", offset_hours=2)],
+        },
+    )
+
+    report, _ = _auditor().audit(
+        manifest_path=manifest,
+        oos_store_path=store,
+        checkpoint_path=checkpoint,
+    )
+
+    assert report["checks"]["oos_store_schema"] is False
     assert report["state"] == "FAIL"
 
 
