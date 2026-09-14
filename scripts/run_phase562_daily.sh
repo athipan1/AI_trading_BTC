@@ -41,6 +41,15 @@ export PYTHONPATH="${PYTHONPATH:-.}"
   --slippage-bps 2 \
   --output "$RESEARCH_DIR/phase562_forward_oos.json"
 
+"$PYTHON_BIN" scripts/run_phase565_evidence_integrity.py \
+  --manifest "$RESEARCH_DIR/phase56_frozen_manifest.json" \
+  --oos-store "$RESEARCH_DIR/phase56_fresh_oos.json" \
+  --checkpoint "$RESEARCH_DIR/phase562_forward_oos_checkpoint.json" \
+  --state "$RESEARCH_DIR/phase565_evidence_integrity_state.json" \
+  --output "$RESEARCH_DIR/phase565_evidence_integrity.json" \
+  --boundary 2026-09-01T00:00:00+00:00 \
+  --stale-after-seconds 108000
+
 "$PYTHON_BIN" scripts/run_phase563_oos_promotion_gate.py \
   --discovery-store "$RESEARCH_DIR/btc_h1_2021_2026_gap_aware.json" \
   --oos-store "$RESEARCH_DIR/phase56_fresh_oos.json" \
