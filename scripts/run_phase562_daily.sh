@@ -48,6 +48,7 @@ export PYTHONPATH="${PYTHONPATH:-.}"
   --state "$RESEARCH_DIR/phase565_evidence_integrity_state.json" \
   --output "$RESEARCH_DIR/phase565_evidence_integrity.json" \
   --boundary 2026-09-01T00:00:00+00:00 \
+  --warmup-hours 288 \
   --stale-after-seconds 108000
 
 "$PYTHON_BIN" scripts/run_phase563_oos_promotion_gate.py \
