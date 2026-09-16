@@ -39,6 +39,12 @@ def _read_json(path: str | Path) -> dict[str, Any]:
     return payload
 
 
+def _counter(value: Any, *, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"promotion {name} counter is invalid")
+    return value
+
+
 def build_snapshot(
     *,
     promotion_path: str | Path,
@@ -49,32 +55,35 @@ def build_snapshot(
     integrity = _read_json(integrity_path)
     checkpoint = _read_json(checkpoint_path)
 
-    sample = promotion.get("sample_gate", {})
-    evidence = promotion.get("evidence", {})
-    decision = promotion.get("decision", {})
+    sample = promotion.get("sample_gate")
+    gate_manifest = promotion.get("gate_manifest")
+    if not isinstance(sample, dict) or not isinstance(gate_manifest, dict):
+        raise ValueError("promotion sample gate contract is invalid")
 
-    signals = sample.get("signals", evidence.get("signals", {}))
-    policy = sample.get(
-        "policy_selected_trades", evidence.get("policy_selected_trades", {})
-    )
-    if not isinstance(signals, dict) or not isinstance(policy, dict):
-        raise ValueError("promotion evidence counters are invalid")
+    performance_gate = gate_manifest.get("performance_gate")
+    if not isinstance(performance_gate, dict):
+        raise ValueError("promotion frozen performance gate contract is invalid")
 
-    state = str(
-        promotion.get("state")
-        or decision.get("state")
-        or promotion.get("evidence_state")
-        or "UNKNOWN"
+    signals = _counter(sample.get("signals"), name="signals")
+    policy_selected = _counter(
+        sample.get("policy_selected_trades"), name="policy_selected_trades"
     )
-    promotion_allowed = bool(
-        promotion.get("promotion_allowed", decision.get("promotion_allowed", False))
+    required_signals = _counter(
+        performance_gate.get("minimum_oos_signals"), name="minimum_oos_signals"
     )
+    required_policy_selected = _counter(
+        performance_gate.get("minimum_policy_selected_trades"),
+        name="minimum_policy_selected_trades",
+    )
+
+    state = str(promotion.get("state") or promotion.get("evidence_state") or "UNKNOWN")
+    promotion_allowed = bool(promotion.get("promotion_allowed", False))
 
     return OOSAlertSnapshot(
-        oos_signals=int(signals.get("current", 0)),
-        required_signals=int(signals.get("required", 0)),
-        policy_selected=int(policy.get("current", 0)),
-        required_policy_selected=int(policy.get("required", 0)),
+        oos_signals=signals,
+        required_signals=required_signals,
+        policy_selected=policy_selected,
+        required_policy_selected=required_policy_selected,
         promotion_state=state,
         promotion_allowed=promotion_allowed,
         integrity_state=str(integrity.get("state", "UNKNOWN")),
