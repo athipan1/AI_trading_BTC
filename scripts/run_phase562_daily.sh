@@ -57,3 +57,11 @@ export PYTHONPATH="${PYTHONPATH:-.}"
   --manifest "$RESEARCH_DIR/phase56_frozen_manifest.json" \
   --gate-manifest "$RESEARCH_DIR/phase563_promotion_gate_manifest.json" \
   --output "$RESEARCH_DIR/phase563_promotion_gate.json"
+
+if ! "$PYTHON_BIN" scripts/run_phase566_oos_line_alert.py \
+  --promotion "$RESEARCH_DIR/phase563_promotion_gate.json" \
+  --integrity "$RESEARCH_DIR/phase565_evidence_integrity.json" \
+  --checkpoint "$RESEARCH_DIR/phase562_forward_oos_checkpoint.json" \
+  --state "$RESEARCH_DIR/phase566_oos_line_alert_state.json"; then
+  echo "Phase 5.6.6 LINE alert failed; research evidence and promotion results remain valid." >&2
+fi
