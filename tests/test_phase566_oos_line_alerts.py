@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from app.research.oos_line_alerts import (
+    build_snapshot,
+    format_oos_line_message,
+    should_notify,
+    write_alert_state,
+)
+
+
+def _write(path: Path, payload: dict[str, object]) -> None:
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_snapshot_message_and_dedup(tmp_path: Path) -> None:
+    promotion = tmp_path / "promotion.json"
+    integrity = tmp_path / "integrity.json"
+    checkpoint = tmp_path / "checkpoint.json"
+    state = tmp_path / "state.json"
+
+    _write(
+        promotion,
+        {
+            "decision": {"state": "TOO_EARLY", "promotion_allowed": False},
+            "evidence": {
+                "signals": {"current": 9, "required": 20},
+                "policy_selected_trades": {"current": 7, "required": 10},
+            },
+        },
+    )
+    _write(integrity, {"state": "PASS", "operational_state": "HEALTHY"})
+    _write(checkpoint, {"last_processed_until": "2026-09-14T00:00:00+00:00"})
+
+    snapshot = build_snapshot(
+        promotion_path=promotion,
+        integrity_path=integrity,
+        checkpoint_path=checkpoint,
+    )
+    assert snapshot.oos_signals == 9
+    assert snapshot.policy_selected == 7
+    assert snapshot.promotion_state == "TOO_EARLY"
+    assert snapshot.integrity_state == "PASS"
+    assert should_notify(snapshot, None) is True
+
+    message = format_oos_line_message(snapshot)
+    assert "OOS Signals: 9 / 20" in message
+    assert "Policy Selected: 7 / 10" in message
+    assert "Integrity: PASS" in message
+
+    write_alert_state(state, snapshot)
+    previous = json.loads(state.read_text(encoding="utf-8"))
+    assert should_notify(snapshot, previous) is False
+
+
+def test_counter_or_gate_change_triggers_alert(tmp_path: Path) -> None:
+    promotion = tmp_path / "promotion.json"
+    integrity = tmp_path / "integrity.json"
+    checkpoint = tmp_path / "checkpoint.json"
+    _write(
+        promotion,
+        {
+            "decision": {"state": "EVIDENCE_READY", "promotion_allowed": False},
+            "evidence": {
+                "signals": {"current": 20, "required": 20},
+                "policy_selected_trades": {"current": 10, "required": 10},
+            },
+        },
+    )
+    _write(integrity, {"state": "PASS", "operational_state": "HEALTHY"})
+    _write(checkpoint, {"last_processed_until": "2026-09-16T00:00:00+00:00"})
+    snapshot = build_snapshot(
+        promotion_path=promotion,
+        integrity_path=integrity,
+        checkpoint_path=checkpoint,
+    )
+    previous = snapshot.as_dict() | {"oos_signals": 19, "promotion_state": "TOO_EARLY"}
+    assert should_notify(snapshot, previous) is True
+
+
+def test_integrity_incident_triggers_alert(tmp_path: Path) -> None:
+    promotion = tmp_path / "promotion.json"
+    integrity = tmp_path / "integrity.json"
+    checkpoint = tmp_path / "checkpoint.json"
+    _write(
+        promotion,
+        {
+            "decision": {"state": "TOO_EARLY", "promotion_allowed": False},
+            "evidence": {
+                "signals": {"current": 9, "required": 20},
+                "policy_selected_trades": {"current": 7, "required": 10},
+            },
+        },
+    )
+    _write(integrity, {"state": "FAIL", "operational_state": "HEALTHY"})
+    _write(checkpoint, {"last_processed_until": "2026-09-16T00:00:00+00:00"})
+    snapshot = build_snapshot(
+        promotion_path=promotion,
+        integrity_path=integrity,
+        checkpoint_path=checkpoint,
+    )
+    previous = snapshot.as_dict() | {"integrity_state": "PASS"}
+    assert should_notify(snapshot, previous) is True
