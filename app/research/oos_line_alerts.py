@@ -65,15 +65,10 @@ def build_snapshot(
         raise ValueError("promotion frozen performance gate contract is invalid")
 
     signals = _counter(sample.get("signals"), name="signals")
-    policy_selected = _counter(
-        sample.get("policy_selected_trades"), name="policy_selected_trades"
-    )
-    required_signals = _counter(
-        performance_gate.get("minimum_oos_signals"), name="minimum_oos_signals"
-    )
+    policy_selected = _counter(sample.get("policy_selected_trades"), name="policy_selected_trades")
+    required_signals = _counter(performance_gate.get("minimum_oos_signals"), name="minimum_oos_signals")
     required_policy_selected = _counter(
-        performance_gate.get("minimum_policy_selected_trades"),
-        name="minimum_policy_selected_trades",
+        performance_gate.get("minimum_policy_selected_trades"), name="minimum_policy_selected_trades"
     )
 
     state = str(promotion.get("state") or promotion.get("evidence_state") or "UNKNOWN")
@@ -92,10 +87,7 @@ def build_snapshot(
     )
 
 
-def should_notify(
-    current: OOSAlertSnapshot,
-    previous: dict[str, Any] | None,
-) -> bool:
+def should_notify(current: OOSAlertSnapshot, previous: dict[str, Any] | None) -> bool:
     if previous is None:
         return True
     watched = (
@@ -128,6 +120,26 @@ def format_oos_line_message(snapshot: OOSAlertSnapshot) -> str:
             f"Policy: {lock}",
             f"Threshold: {lock}",
             "",
+            f"Last processed: {snapshot.last_processed_until}",
+        ]
+    )
+
+
+def format_daily_heartbeat_message(snapshot: OOSAlertSnapshot, *, evidence_changed: bool) -> str:
+    evidence_status = "UPDATED" if evidence_changed else "NO NEW EVIDENCE"
+    return "\n".join(
+        [
+            "AI Trading BTC | OOS Daily Heartbeat 💓",
+            "",
+            f"Evidence: {evidence_status}",
+            f"OOS Signals: {snapshot.oos_signals} / {snapshot.required_signals}",
+            f"Policy Selected: {snapshot.policy_selected} / {snapshot.required_policy_selected}",
+            "",
+            f"Promotion: {snapshot.promotion_state}",
+            f"Integrity: {snapshot.integrity_state}",
+            f"Operational: {snapshot.operational_state}",
+            "",
+            "Model / Policy / Threshold: FROZEN 🔒",
             f"Last processed: {snapshot.last_processed_until}",
         ]
     )
