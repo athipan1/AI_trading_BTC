@@ -7,6 +7,7 @@ import pytest
 
 from app.research.oos_line_alerts import (
     build_snapshot,
+    format_daily_heartbeat_message,
     format_oos_line_message,
     should_notify,
     write_alert_state,
@@ -66,9 +67,34 @@ def test_snapshot_message_and_dedup(tmp_path: Path) -> None:
     assert "Policy Selected: 7 / 10" in message
     assert "Integrity: PASS" in message
 
+    heartbeat = format_daily_heartbeat_message(snapshot, evidence_changed=False)
+    assert "OOS Daily Heartbeat" in heartbeat
+    assert "Evidence: NO NEW EVIDENCE" in heartbeat
+    assert "OOS Signals: 9 / 20" in heartbeat
+    assert "Integrity: PASS" in heartbeat
+    assert "FROZEN" in heartbeat
+
     write_alert_state(state, snapshot)
     previous = json.loads(state.read_text(encoding="utf-8"))
     assert should_notify(snapshot, previous) is False
+
+
+def test_heartbeat_can_report_updated_evidence(tmp_path: Path) -> None:
+    promotion = tmp_path / "promotion.json"
+    integrity = tmp_path / "integrity.json"
+    checkpoint = tmp_path / "checkpoint.json"
+    _write(promotion, _promotion(signals=10, policy_selected=8))
+    _write(integrity, {"state": "PASS", "operational_state": "HEALTHY"})
+    _write(checkpoint, {"last_processed_until": "2026-09-17T00:00:00+00:00"})
+    snapshot = build_snapshot(
+        promotion_path=promotion,
+        integrity_path=integrity,
+        checkpoint_path=checkpoint,
+    )
+    heartbeat = format_daily_heartbeat_message(snapshot, evidence_changed=True)
+    assert "Evidence: UPDATED" in heartbeat
+    assert "OOS Signals: 10 / 20" in heartbeat
+    assert "Policy Selected: 8 / 10" in heartbeat
 
 
 def test_counter_or_gate_change_triggers_alert(tmp_path: Path) -> None:
