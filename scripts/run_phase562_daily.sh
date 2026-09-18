@@ -62,6 +62,7 @@ if ! "$PYTHON_BIN" scripts/run_phase566_oos_line_alert.py \
   --promotion "$RESEARCH_DIR/phase563_promotion_gate.json" \
   --integrity "$RESEARCH_DIR/phase565_evidence_integrity.json" \
   --checkpoint "$RESEARCH_DIR/phase562_forward_oos_checkpoint.json" \
-  --state "$RESEARCH_DIR/phase566_oos_line_alert_state.json"; then
-  echo "Phase 5.6.6 LINE alert failed; research evidence and promotion results remain valid." >&2
+  --state "$RESEARCH_DIR/phase566_oos_line_alert_state.json" \
+  --daily-heartbeat; then
+  echo "Phase 5.6.6 LINE alert/heartbeat failed; research evidence and promotion results remain valid." >&2
 fi

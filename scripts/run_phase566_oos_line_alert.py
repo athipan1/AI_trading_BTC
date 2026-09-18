@@ -6,6 +6,7 @@ import os
 from app.notifications.line_messaging import LineMessagingNotifier
 from app.research.oos_line_alerts import (
     build_snapshot,
+    format_daily_heartbeat_message,
     format_oos_line_message,
     load_alert_state,
     should_notify,
@@ -14,11 +15,16 @@ from app.research.oos_line_alerts import (
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Send deduplicated Phase 5.6.6 OOS LINE alerts.")
+    parser = argparse.ArgumentParser(description="Send Phase 5.6.6 OOS LINE alerts and heartbeats.")
     parser.add_argument("--promotion", required=True)
     parser.add_argument("--integrity", required=True)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--state", required=True)
+    parser.add_argument(
+        "--daily-heartbeat",
+        action="store_true",
+        help="Send one heartbeat for this invocation even when OOS state is unchanged.",
+    )
     return parser.parse_args()
 
 
@@ -30,7 +36,9 @@ def main() -> int:
         checkpoint_path=args.checkpoint,
     )
     previous = load_alert_state(args.state)
-    if not should_notify(snapshot, previous):
+    changed = should_notify(snapshot, previous)
+
+    if not changed and not args.daily_heartbeat:
         print("Phase 5.6.6: no OOS state change; LINE alert skipped.")
         return 0
 
@@ -41,9 +49,14 @@ def main() -> int:
         return 0
 
     notifier = LineMessagingNotifier(token, target_id)
-    notifier.send_text(format_oos_line_message(snapshot))
-    write_alert_state(args.state, snapshot)
-    print("Phase 5.6.6: OOS LINE alert sent and dedup state advanced.")
+    if changed:
+        notifier.send_text(format_oos_line_message(snapshot))
+        write_alert_state(args.state, snapshot)
+        print("Phase 5.6.6: OOS LINE alert sent and dedup state advanced.")
+        return 0
+
+    notifier.send_text(format_daily_heartbeat_message(snapshot, evidence_changed=False))
+    print("Phase 5.6.6: daily OOS heartbeat sent; dedup state unchanged.")
     return 0
 
 
