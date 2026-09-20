@@ -353,6 +353,34 @@ class TestnetAutoTrader:
         candle_ms = candles[-1].timestamp_ms
         position = self._active_position()
 
+        if (
+            position is not None
+            and self.exit_mode == "fixed_tp_sl"
+            and self.protection_guard is not None
+        ):
+            try:
+                protection = self.protection_guard.ensure_protected(position)
+            except Exception as exc:
+                reason = (
+                    "exchange-side protection could not be established or reconciled; "
+                    f"automation halted: {exc.__class__.__name__}: {exc}"
+                )
+                self.state_store.halt(reason)
+                raise AutoTradingHalted(reason) from exc
+            if protection.state in {
+                "EXCHANGE_EXIT_RECONCILED",
+                "EXCHANGE_EXIT_ALREADY_RECORDED",
+            }:
+                self.state_store.mark_candle_processed(candle_ms)
+                return {
+                    "event": protection.state,
+                    "strategy_id": self.strategy_id,
+                    "symbol": self.symbol,
+                    "timeframe": self.timeframe,
+                    "candle_ms": candle_ms,
+                    "tracked_positions": self.position_store.count_active(),
+                }
+
         # Baseline exits are fixed TP/SL and may execute immediately on live price.
         if position is not None and self.exit_mode == "fixed_tp_sl":
             live_price = self.broker.current_price(self.symbol)
