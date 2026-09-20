@@ -169,22 +169,34 @@ def main() -> None:
     preflight = primary.broker.preflight(primary.symbol)
     print(json.dumps({"event": "PREFLIGHT_OK", "preflight": preflight}, sort_keys=True))
     if primary.notifier is not None:
-        primary.notifier.send_text(
-            "\n".join(
-                [
-                    "Trading BTC",
-                    "🤖 Binance Spot Testnet Multi-Strategy Auto Trading เริ่มทำงาน",
-                    f"คู่: {primary.symbol}",
-                    f"Timeframe: {primary.timeframe}",
-                    "Market data: Binance Public Spot (read-only)",
-                    "Execution: Binance Spot Testnet",
-                    "Strategies: BASELINE + TRIPLE_EMA",
-                    f"Baseline entry cap: {traders[0].entry_notional_usdt:.2f} USDT",
-                    f"Triple EMA entry cap: {traders[1].entry_notional_usdt:.2f} USDT",
-                    "Max position: 1 position ต่อ strategy",
-                ]
+        try:
+            primary.notifier.send_text(
+                "\n".join(
+                    [
+                        "Trading BTC",
+                        "🤖 Binance Spot Testnet Multi-Strategy Auto Trading เริ่มทำงาน",
+                        f"คู่: {primary.symbol}",
+                        f"Timeframe: {primary.timeframe}",
+                        "Market data: Binance Public Spot (read-only)",
+                        "Execution: Binance Spot Testnet",
+                        "Strategies: BASELINE + TRIPLE_EMA",
+                        f"Baseline entry cap: {traders[0].entry_notional_usdt:.2f} USDT",
+                        f"Triple EMA entry cap: {traders[1].entry_notional_usdt:.2f} USDT",
+                        "Max position: 1 position ต่อ strategy",
+                    ]
+                )
             )
-        )
+        except Exception as exc:
+            print(
+                json.dumps(
+                    {
+                        "event": "NOTIFICATION_WARNING",
+                        "notification": "startup",
+                        "error": f"{exc.__class__.__name__}: {exc}",
+                    },
+                    sort_keys=True,
+                )
+            )
 
     while True:
         for trader in traders:
