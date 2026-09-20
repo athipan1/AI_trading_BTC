@@ -9,7 +9,7 @@ from app.execution.binance_testnet import BinanceTestnetBroker, BinanceTestnetSa
 from tests.test_binance_testnet import FakeResponse, FakeSession
 
 
-class ProtectionSession(FakeSession):
+class FakeResponse:\n    def __init__(self, payload: dict | list, status_code: int = 200) -> None:\n        self._payload = payload\n        self.status_code = status_code\n        self.ok = 200 <= status_code < 300\n\n    def json(self):\n        return self._payload\n\n\nclass ProtectionSession:
     def __init__(self, *, existing: bool = False, current_price: str = "77500.00") -> None:
         super().__init__()
         self.existing = existing
@@ -83,7 +83,7 @@ class ProtectionSession(FakeSession):
                     "listOrderStatus": "EXECUTING",
                 }
             )
-        return super().request(method, url, params=params, headers=headers, timeout=timeout)
+        if path == "/api/v3/time":\n            self.calls.append((method, url, params, dict(headers or {}), timeout))\n            return FakeResponse({"serverTime": 1_788_187_701_419})\n        raise AssertionError(f"unexpected request path: {path}")
 
 
 def _service(session: ProtectionSession) -> BinanceSpotProtectiveExitService:
