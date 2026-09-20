@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.auto_trading.state_store import AutoTradeStateStore, AutoTradingHalted
-from app.execution.binance_testnet import BinanceTestnetBroker
+from app.execution.binance_spot_protection_guard import BinanceSpotProtectionGuard\nfrom app.execution.binance_testnet import BinanceTestnetBroker
 from app.models import TradeAction, TradeSignal
 from app.monitoring.position_store import PositionStore
 from app.notifications.line_messaging import (
@@ -48,7 +48,7 @@ class TestnetAutoTrader:
         self.entry_notional_usdt = float(entry_notional_usdt)
         self.candle_limit = candle_limit
         self.strategy_id = (strategy_id or getattr(strategy, "strategy_id", "baseline")).lower()
-        self.exit_mode = str(getattr(strategy, "exit_mode", "fixed_tp_sl"))
+        self.exit_mode = str(getattr(strategy, "exit_mode", "fixed_tp_sl"))\n        self.protection_guard = protection_guard
 
     def _active_position(self) -> dict[str, Any] | None:
         positions = self.position_store.active_positions(
