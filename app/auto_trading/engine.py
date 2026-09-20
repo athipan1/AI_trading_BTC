@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.auto_trading.state_store import AutoTradeStateStore, AutoTradingHalted
+from app.execution.binance_spot_protection_guard import BinanceSpotProtectionGuard
 from app.execution.binance_testnet import BinanceTestnetBroker
 from app.models import TradeAction, TradeSignal
 from app.monitoring.position_store import PositionStore
@@ -32,6 +33,7 @@ class TestnetAutoTrader:
         entry_notional_usdt: float = 10.0,
         candle_limit: int = 120,
         strategy_id: str | None = None,
+        protection_guard: BinanceSpotProtectionGuard | None = None,
     ) -> None:
         if entry_notional_usdt <= 0:
             raise ValueError("entry_notional_usdt must be positive")
@@ -49,6 +51,7 @@ class TestnetAutoTrader:
         self.candle_limit = candle_limit
         self.strategy_id = (strategy_id or getattr(strategy, "strategy_id", "baseline")).lower()
         self.exit_mode = str(getattr(strategy, "exit_mode", "fixed_tp_sl"))
+        self.protection_guard = protection_guard
 
     def _active_position(self) -> dict[str, Any] | None:
         positions = self.position_store.active_positions(
@@ -262,6 +265,20 @@ class TestnetAutoTrader:
             strategy_id=self.strategy_id,
             exit_mode=self.exit_mode,
         )
+        protection_status = "not_configured"
+        if self.exit_mode == "fixed_tp_sl" and self.protection_guard is not None:
+            try:
+                protection = self.protection_guard.ensure_protected(position)
+                protection_status = protection.state
+            except Exception as exc:
+                reason = (
+                    "BUY filled but exchange-side protection could not be established; "
+                    f"automation halted: {exc.__class__.__name__}: {exc}"
+                )
+                self.state_store.finalize_order_attempt()
+                self.state_store.halt(reason)
+                raise AutoTradingHalted(reason) from exc
+
         snapshot = self.broker.account_snapshot(self.symbol)
         line_status = self._send_open_notification(
             order=order,
@@ -281,6 +298,7 @@ class TestnetAutoTrader:
             "position": position,
             "account": snapshot,
             "line_notification": line_status,
+            "exchange_protection": protection_status,
         }
 
     def _exit_position(
@@ -290,6 +308,17 @@ class TestnetAutoTrader:
         reason: str,
         candle_ms: int,
     ) -> dict[str, Any]:
+        if self.protection_guard is not None and self.exit_mode == "fixed_tp_sl":
+            try:
+                self.protection_guard.assert_software_exit_safe(position)
+            except Exception as exc:
+                halt_reason = (
+                    "software SELL blocked pending exchange protection reconciliation: "
+                    f"{exc.__class__.__name__}: {exc}"
+                )
+                self.state_store.halt(halt_reason)
+                raise AutoTradingHalted(halt_reason) from exc
+
         self.state_store.begin_order_attempt(
             action="SELL",
             symbol=self.symbol,
@@ -352,6 +381,34 @@ class TestnetAutoTrader:
         )
         candle_ms = candles[-1].timestamp_ms
         position = self._active_position()
+
+        if (
+            position is not None
+            and self.exit_mode == "fixed_tp_sl"
+            and self.protection_guard is not None
+        ):
+            try:
+                protection = self.protection_guard.ensure_protected(position)
+            except Exception as exc:
+                reason = (
+                    "exchange-side protection could not be established or reconciled; "
+                    f"automation halted: {exc.__class__.__name__}: {exc}"
+                )
+                self.state_store.halt(reason)
+                raise AutoTradingHalted(reason) from exc
+            if protection.state in {
+                "EXCHANGE_EXIT_RECONCILED",
+                "EXCHANGE_EXIT_ALREADY_RECORDED",
+            }:
+                self.state_store.mark_candle_processed(candle_ms)
+                return {
+                    "event": protection.state,
+                    "strategy_id": self.strategy_id,
+                    "symbol": self.symbol,
+                    "timeframe": self.timeframe,
+                    "candle_ms": candle_ms,
+                    "tracked_positions": self.position_store.count_active(),
+                }
 
         # Baseline exits are fixed TP/SL and may execute immediately on live price.
         if position is not None and self.exit_mode == "fixed_tp_sl":

@@ -8,6 +8,9 @@ from pathlib import Path
 
 from app.auto_trading.engine import TestnetAutoTrader
 from app.auto_trading.state_store import AutoTradeStateStore, AutoTradingHalted
+from app.execution.binance_spot_protection import BinanceSpotProtectiveExitService
+from app.execution.binance_spot_protection_guard import BinanceSpotProtectionGuard
+from app.execution.binance_spot_reconciliation import BinanceSpotProtectionReconciler
 from app.execution.binance_testnet_hybrid import BinanceSpotTestnetHybridBroker
 from app.integrations.hermes3d.journal import Hermes3DEventJournal
 from app.monitoring.binance_fill_reconciler import BinanceSpotFillSource, PositionFillReconciler
@@ -108,6 +111,13 @@ def build_traders(args: argparse.Namespace) -> list[TestnetAutoTrader]:
         min_reward_risk=float(os.environ.get("MIN_REWARD_RISK", "1.5")),
     )
     position_store = PositionStore(args.position_store)
+    protection_guard = None
+    if _env_bool("BTC_TESTNET_SPOT_PROTECTION_ENABLED", False):
+        protection_service = BinanceSpotProtectiveExitService(broker)
+        protection_guard = BinanceSpotProtectionGuard(
+            protection_service,
+            BinanceSpotProtectionReconciler(protection_service, position_store),
+        )
 
     baseline = TestnetAutoTrader(
         broker=broker,
@@ -120,6 +130,7 @@ def build_traders(args: argparse.Namespace) -> list[TestnetAutoTrader]:
         timeframe=args.timeframe,
         entry_notional_usdt=baseline_notional,
         candle_limit=candle_limit,
+        protection_guard=protection_guard,
     )
     triple = TestnetAutoTrader(
         broker=broker,
