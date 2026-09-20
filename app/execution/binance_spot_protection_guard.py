@@ -36,6 +36,12 @@ class BinanceSpotProtectionGuard:
             raise BinanceTestnetSafetyError("fixed protective exit requires take-profit")
 
         before = self.reconciler.reconcile(entry_order_id=entry_order_id)
+        if before.state in {"EXCHANGE_EXIT_RECONCILED", "EXCHANGE_EXIT_ALREADY_RECORDED"}:
+            return ProtectionGuardResult(
+                state=before.state,
+                order_list_id=None,
+                detail=before.detail,
+            )
         if before.state == "PROTECTED":
             return ProtectionGuardResult(
                 state="ALREADY_PROTECTED",
