@@ -58,7 +58,9 @@ class BinanceSpotProtectionReconciler:
 
     @staticmethod
     def _filled_order(orders: list[dict[str, Any]]) -> dict[str, Any] | None:
-        filled = [order for order in orders if str(order.get("status", "")).upper() == "FILLED"]
+        filled = [
+            order for order in orders if str(order.get("status", "")).upper() == "FILLED"
+        ]
         if len(filled) > 1:
             raise RuntimeError("multiple protective exit orders are FILLED")
         return filled[0] if filled else None
@@ -67,7 +69,8 @@ class BinanceSpotProtectionReconciler:
     def _exit_reason(order: dict[str, Any]) -> str:
         order_type = str(order.get("type", "")).upper()
         client_id = str(order.get("clientOrderId", "")).lower()
-        if client_id.endswith("-tp") or order_type in {"LIMIT_MAKER", "TAKE_PROFIT", "TAKE_PROFIT_LIMIT"}:
+        take_profit_types = {"LIMIT_MAKER", "TAKE_PROFIT", "TAKE_PROFIT_LIMIT"}
+        if client_id.endswith("-tp") or order_type in take_profit_types:
             return "TP_HIT"
         if client_id.endswith("-sl") or order_type in {"STOP_LOSS", "STOP_LOSS_LIMIT"}:
             return "SL_HIT"
@@ -101,10 +104,11 @@ class BinanceSpotProtectionReconciler:
             entry_order_id=str(entry_order_id),
         )
         filled = self._filled_order(orders)
+        active_statuses = {"NEW", "PARTIALLY_FILLED", "PENDING_NEW"}
         active = [
             order
             for order in orders
-            if str(order.get("status", "")).upper() in {"NEW", "PARTIALLY_FILLED", "PENDING_NEW"}
+            if str(order.get("status", "")).upper() in active_statuses
         ]
 
         if filled is not None:
