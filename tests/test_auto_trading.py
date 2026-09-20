@@ -197,3 +197,34 @@ def test_no_position_exit_signal_does_not_submit_order(tmp_path) -> None:
     assert result["event"] == "NO_TRADE"
     assert broker.buy_calls == 0
     assert broker.sell_calls == 0
+
+class FailingNotifier:
+    def send_text(self, text):
+        raise RuntimeError("simulated LINE HTTP 429")
+
+
+def test_open_notification_failure_does_not_fail_trade(tmp_path) -> None:
+    broker = FakeBroker()
+    trader = make_trader(tmp_path, broker=broker, notifier=FailingNotifier())
+
+    result = trader.run_once()
+
+    assert result["event"] == "BUY_FILLED"
+    assert result["line_notification"] == "warning:RuntimeError"
+    assert broker.buy_calls == 1
+    assert trader.position_store.count_active() == 1
+
+
+def test_exit_notification_failure_does_not_fail_close(tmp_path) -> None:
+    broker = FakeBroker()
+    trader = make_trader(tmp_path, broker=broker, notifier=FailingNotifier())
+    trader.run_once()
+
+    broker.price = 105.0
+    result = trader.run_once()
+
+    assert result["event"] == "POSITION_CLOSED"
+    assert result["reason"] == "TP_HIT"
+    assert result["line_notification"] == "warning:RuntimeError"
+    assert broker.sell_calls == 1
+    assert trader.position_store.count_active() == 0
