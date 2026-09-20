@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from urllib.parse import urlparse
 
 import pytest
@@ -53,7 +52,16 @@ def reconciler(store: PositionStore, orders) -> BinanceSpotProtectionReconciler:
     return BinanceSpotProtectionReconciler(BinanceSpotProtectiveExitService(broker), store)
 
 
-def protective(order_id, client_id, order_type, status, price="0", stop="0", executed="0", quote="0"):
+def protective(
+    order_id,
+    client_id,
+    order_type,
+    status,
+    price="0",
+    stop="0",
+    executed="0",
+    quote="0",
+):
     return {
         "orderId": order_id,
         "clientOrderId": client_id,
