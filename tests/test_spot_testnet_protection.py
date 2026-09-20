@@ -6,20 +6,33 @@ import pytest
 
 from app.execution.binance_spot_protection import BinanceSpotProtectiveExitService
 from app.execution.binance_testnet import BinanceTestnetBroker, BinanceTestnetSafetyError
-from tests.test_binance_testnet import FakeResponse, FakeSession
 
 
-class FakeResponse:\n    def __init__(self, payload: dict | list, status_code: int = 200) -> None:\n        self._payload = payload\n        self.status_code = status_code\n        self.ok = 200 <= status_code < 300\n\n    def json(self):\n        return self._payload\n\n\nclass ProtectionSession:
+class FakeResponse:
+    def __init__(self, payload: dict | list, status_code: int = 200) -> None:
+        self._payload = payload
+        self.status_code = status_code
+        self.ok = 200 <= status_code < 300
+
+    def json(self):
+        return self._payload
+
+
+class ProtectionSession:
     def __init__(self, *, existing: bool = False, current_price: str = "77500.00") -> None:
-        super().__init__()
+        self.calls = []
         self.existing = existing
         self.current_price = current_price
 
     def request(self, method, url, params=None, headers=None, timeout=None):
         params = dict(params or {})
+        headers = dict(headers or {})
+        self.calls.append((method, url, params, headers, timeout))
         path = urlparse(url).path
+
+        if path == "/api/v3/time":
+            return FakeResponse({"serverTime": 1_788_187_701_419})
         if path == "/api/v3/exchangeInfo":
-            self.calls.append((method, url, params, dict(headers or {}), timeout))
             return FakeResponse(
                 {
                     "symbols": [
@@ -44,10 +57,8 @@ class FakeResponse:\n    def __init__(self, payload: dict | list, status_code: i
                 }
             )
         if path == "/api/v3/ticker/price":
-            self.calls.append((method, url, params, dict(headers or {}), timeout))
             return FakeResponse({"symbol": "BTCUSDT", "price": self.current_price})
         if path == "/api/v3/openOrders":
-            self.calls.append((method, url, params, dict(headers or {}), timeout))
             if not self.existing:
                 return FakeResponse([])
             return FakeResponse(
@@ -75,7 +86,6 @@ class FakeResponse:\n    def __init__(self, payload: dict | list, status_code: i
                 ]
             )
         if path == "/api/v3/orderList/oco":
-            self.calls.append((method, url, params, dict(headers or {}), timeout))
             return FakeResponse(
                 {
                     "orderListId": 99,
@@ -83,7 +93,7 @@ class FakeResponse:\n    def __init__(self, payload: dict | list, status_code: i
                     "listOrderStatus": "EXECUTING",
                 }
             )
-        if path == "/api/v3/time":\n            self.calls.append((method, url, params, dict(headers or {}), timeout))\n            return FakeResponse({"serverTime": 1_788_187_701_419})\n        raise AssertionError(f"unexpected request path: {path}")
+        raise AssertionError(f"unexpected request path: {path}")
 
 
 def _service(session: ProtectionSession) -> BinanceSpotProtectiveExitService:
@@ -94,7 +104,8 @@ def _service(session: ProtectionSession) -> BinanceSpotProtectiveExitService:
 
 def test_audit_detects_exchange_side_protection() -> None:
     result = _service(ProtectionSession(existing=True)).audit(
-        symbol="BTC/USDT", entry_order_id="3489476"
+        symbol="BTC/USDT",
+        entry_order_id="3489476",
     )
     assert result["protected"] is True
     assert result["matching_open_orders"] == 2
@@ -110,7 +121,9 @@ def test_place_oco_uses_sell_and_exchange_quantization() -> None:
         stop_loss=77059.529,
     )
     assert result.order_list_id == 99
-    call = next(item for item in session.calls if urlparse(item[1]).path == "/api/v3/orderList/oco")
+    call = next(
+        item for item in session.calls if urlparse(item[1]).path == "/api/v3/orderList/oco"
+    )
     assert call[0] == "POST"
     assert call[2]["side"] == "SELL"
     assert call[2]["quantity"] == "0.00012"
@@ -130,7 +143,10 @@ def test_place_oco_refuses_duplicate_protection() -> None:
 
 
 def test_place_oco_refuses_invalid_live_price_relationship() -> None:
-    with pytest.raises(BinanceTestnetSafetyError, match="stop-loss < current price < take-profit"):
+    with pytest.raises(
+        BinanceTestnetSafetyError,
+        match="stop-loss < current price < take-profit",
+    ):
         _service(ProtectionSession(current_price="79000")).place_oco(
             symbol="BTC/USDT",
             entry_order_id="3489476",
