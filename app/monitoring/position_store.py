@@ -170,6 +170,25 @@ class PositionStore:
             )
         ]
 
+    def unresolved_positions(
+        self,
+        symbol: str | None = None,
+        strategy_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return positions whose execution lifecycle has not reached CLOSED."""
+        normalized_symbol = symbol.upper() if symbol else None
+        normalized_strategy = strategy_id.lower() if strategy_id else None
+        return [
+            item
+            for item in self.load()
+            if item.get("status") in {"OPEN", "TP_HIT", "SL_HIT"}
+            and (normalized_symbol is None or item.get("symbol") == normalized_symbol)
+            and (
+                normalized_strategy is None
+                or str(item.get("strategy_id", "baseline")).lower() == normalized_strategy
+            )
+        ]
+
     def count_active(self, strategy_id: str | None = None) -> int:
         return len(self.active_positions(strategy_id=strategy_id))
 
