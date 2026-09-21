@@ -122,21 +122,33 @@ def main() -> None:
     preflight = trader.broker.preflight(trader.symbol)
     print(json.dumps({"event": "FUTURES_PREFLIGHT_OK", "preflight": preflight}, sort_keys=True))
     if trader.notifier is not None:
-        trader.notifier.send_text(
-            "\n".join(
-                [
-                    "Trading BTC",
-                    "🔻 Binance Futures Demo Triple EMA SHORT เริ่มทำงาน",
-                    f"คู่: {trader.symbol}",
-                    f"Timeframe: {trader.timeframe}",
-                    "Entry: EMA200 > EMA50 > EMA20 และ Close H1 < EMA20",
-                    "Exit: TP 2R / SL EMA50 / Close H1 > EMA50",
-                    f"Entry cap: {trader.entry_notional_usdt:.2f} USDT",
-                    f"Exchange minimum: {preflight['minimum_entry_notional_usdt']:.2f} USDT",
-                    "Max position: 1 SHORT",
-                ]
+        try:
+            trader.notifier.send_text(
+                "\n".join(
+                    [
+                        "Trading BTC",
+                        "🔻 Binance Futures Demo Triple EMA SHORT เริ่มทำงาน",
+                        f"คู่: {trader.symbol}",
+                        f"Timeframe: {trader.timeframe}",
+                        "Entry: EMA200 > EMA50 > EMA20 และ Close H1 < EMA20",
+                        "Exit: TP 2R / SL EMA50 / Close H1 > EMA50",
+                        f"Entry cap: {trader.entry_notional_usdt:.2f} USDT",
+                        f"Exchange minimum: {preflight['minimum_entry_notional_usdt']:.2f} USDT",
+                        "Max position: 1 SHORT",
+                    ]
+                )
             )
-        )
+        except Exception as exc:
+            print(
+                json.dumps(
+                    {
+                        "event": "NOTIFICATION_WARNING",
+                        "notification": "startup",
+                        "error": f"{exc.__class__.__name__}: {exc}",
+                    },
+                    sort_keys=True,
+                )
+            )
 
     while True:
         try:

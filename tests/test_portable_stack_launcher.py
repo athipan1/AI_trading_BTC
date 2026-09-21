@@ -182,3 +182,13 @@ def test_example_env_supports_portable_spot_and_futures_stack() -> None:
     assert "BINANCE_FUTURES_TESTNET_API_KEY=" in source
     assert "BINANCE_FUTURES_TESTNET_API_SECRET=" in source
     assert "BTC_FUTURES_SHORT_CANDLE_LIMIT=240" in source
+
+
+def test_futures_short_startup_notification_failure_is_fail_soft() -> None:
+    source = (ROOT / "scripts/run_binance_futures_testnet_short.py").read_text(encoding="utf-8")
+    startup = source.split("if trader.notifier is not None:", 1)[1].split("\n\n    while True:", 1)[0]
+
+    assert "try:" in startup
+    assert "except Exception as exc:" in startup
+    assert '"event": "NOTIFICATION_WARNING"' in startup
+    assert '"notification": "startup"' in startup
