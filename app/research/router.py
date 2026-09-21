@@ -10,6 +10,7 @@ from app.monitoring.position_store import PositionStore
 from app.research.feature_dataset import ResearchFeatureDatasetProjection
 from app.research.historical_store import HistoricalResearchStore
 from app.research.promotion_observability import PromotionGateObservability
+from app.research.research_operations import ResearchOperationsProjection
 from app.research.trade_dataset import ResearchSource, ResearchTradeDatasetProjection
 
 
@@ -19,6 +20,7 @@ def build_research_router(
     futures_position_store: PositionStore,
     historical_trade_store: HistoricalResearchStore | None = None,
     promotion_observability: PromotionGateObservability | None = None,
+    operations_observability: ResearchOperationsProjection | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/research", tags=["research"])
 
@@ -119,5 +121,11 @@ def build_research_router(
         @router.get("/promotion")
         def research_promotion() -> dict[str, object]:
             return promotion_observability.snapshot()
+
+    if operations_observability is not None:
+
+        @router.get("/operations")
+        def research_operations() -> dict[str, object]:
+            return operations_observability.snapshot()
 
     return router

@@ -5,6 +5,7 @@ import { OfficeLocalizationBridge } from "@/features/office/localization/OfficeL
 import { MobileAgentRosterBridge } from "@/features/office/mobile/MobileAgentRosterBridge";
 import { OfficeScreen } from "@/features/office/screens/OfficeScreen";
 import { ActiveTradePanel } from "@/features/trading/ActiveTradePanel";
+import { ResearchOperationsPanel } from "@/features/trading/ResearchOperationsPanel";
 import { TradingOfficeRealtimeBridge } from "@/features/trading/TradingOfficeRealtimeBridge";
 import "./mobile.css";
 
@@ -42,6 +43,7 @@ export default function OfficePage() {
     <AgentStoreProvider>
       <TradingOfficeRealtimeBridge />
       <ActiveTradePanel />
+      <ResearchOperationsPanel />
       <OfficeLocalizationBridge />
       <MobileAgentRosterBridge />
       <Suspense fallback={<OfficeLoadingFallback />}>

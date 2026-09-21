@@ -20,6 +20,7 @@ from app.monitoring.position_store import PositionStore
 from app.monitoring.trade_path_observer import TradePathObserver
 from app.research.historical_store import HistoricalResearchStore
 from app.research.promotion_observability import PromotionGateObservability
+from app.research.research_operations import ResearchOperationsProjection
 from app.research.router import build_research_router
 from app.risk.engine import RiskEngine
 from app.strategies.baseline import BaselineStrategy
@@ -49,6 +50,12 @@ research_historical_trades = HistoricalResearchStore(settings.research_historica
 research_promotion = PromotionGateObservability(
     settings.research_promotion_gate_report,
     stale_after_seconds=settings.research_promotion_stale_after_seconds,
+)
+research_operations = ResearchOperationsProjection(
+    promotion_observability=research_promotion,
+    integrity_report_path=settings.research_integrity_report,
+    checkpoint_path=settings.research_forward_oos_checkpoint,
+    scheduler_state_path=settings.research_scheduler_state,
 )
 phase41_validation_positions = PositionStore(settings.phase41_validation_position_store)
 hermes3d_auto_state_paths = {
@@ -101,6 +108,7 @@ app.include_router(
         futures_position_store=hermes3d_futures_positions,
         historical_trade_store=research_historical_trades,
         promotion_observability=research_promotion,
+        operations_observability=research_operations,
     )
 )
 

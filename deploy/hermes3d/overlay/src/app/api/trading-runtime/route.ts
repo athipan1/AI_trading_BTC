@@ -3,7 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ALLOWED_RESOURCES = new Set(["health", "state", "registry", "analytics", "events"]);
+const ALLOWED_RESOURCES = new Set([
+  "health",
+  "state",
+  "registry",
+  "analytics",
+  "events",
+  "research-operations",
+]);
 
 const normalizeRuntimeUrl = (value: string): string => {
   const parsed = new URL(value.trim());
@@ -21,7 +28,7 @@ export async function GET(request: NextRequest) {
   const resource = request.nextUrl.searchParams.get("resource") ?? "state";
   if (!ALLOWED_RESOURCES.has(resource)) {
     return NextResponse.json(
-      { error: "Trading Room is read-only. Allowed resources: health, state, registry, analytics, events." },
+      { error: "Trading Room is read-only. Allowed resources: health, state, registry, analytics, events, research-operations." },
       { status: 400 }
     );
   }
@@ -37,8 +44,13 @@ export async function GET(request: NextRequest) {
 
   try {
     const runtimeUrl = normalizeRuntimeUrl(configuredUrl);
-    const pathname = resource === "events" ? "/events/stream" : `/${resource}`;
-    const response = await fetch(`${runtimeUrl}${pathname}`, {
+    const pathname =
+      resource === "events"
+        ? "/events/stream"
+        : resource === "research-operations"
+          ? "/research/operations"
+          : "/" + resource;
+    const response = await fetch(runtimeUrl + pathname, {
       method: "GET",
       headers: {
         Accept: resource === "events" ? "text/event-stream" : "application/json",

@@ -15,6 +15,28 @@ def _default_research_promotion_gate_report() -> str:
     return "state/research/phase563_promotion_gate.json"
 
 
+def _default_research_runtime_artifact(filename: str) -> str:
+    deployed_dir = Path("/workspace/research")
+    if deployed_dir.exists():
+        return str(deployed_dir / filename)
+    return str(Path("state/research") / filename)
+
+
+def _default_research_integrity_report() -> str:
+    return _default_research_runtime_artifact("phase565_evidence_integrity.json")
+
+
+def _default_research_forward_oos_checkpoint() -> str:
+    return _default_research_runtime_artifact("phase562_forward_oos_checkpoint.json")
+
+
+def _default_research_scheduler_state() -> str:
+    deployed = Path("/workspace/AI_trading_BTC/runtime/phase562_daily_scheduler_state.json")
+    if deployed.parent.exists():
+        return str(deployed)
+    return "runtime/phase562_daily_scheduler_state.json"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -47,6 +69,11 @@ class Settings(BaseSettings):
         default_factory=_default_research_promotion_gate_report
     )
     research_promotion_stale_after_seconds: float = Field(default=108_000.0, gt=0)
+    research_integrity_report: str = Field(default_factory=_default_research_integrity_report)
+    research_forward_oos_checkpoint: str = Field(
+        default_factory=_default_research_forward_oos_checkpoint
+    )
+    research_scheduler_state: str = Field(default_factory=_default_research_scheduler_state)
 
     phase41_validation_trade_enabled: bool = False
     phase41_validation_position_store: str = "state/phase41-validation-positions.json"
