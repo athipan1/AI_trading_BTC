@@ -114,6 +114,60 @@ def test_filled_tp_closes_local_position(tmp_path) -> None:
     assert saved["exit_order_id"] == "11"
 
 
+def test_filled_tp_closes_locally_triggered_position(tmp_path) -> None:
+    store = position_store(tmp_path)
+    store.mark_triggered("3489476", "TP_HIT", 78483.55)
+    orders = [
+        protective(
+            11,
+            "protect-3489476-tp",
+            "LIMIT_MAKER",
+            "FILLED",
+            price="78483.55",
+            executed="0.00012",
+            quote="9.418026",
+        ),
+        protective(12, "protect-3489476-sl", "STOP_LOSS", "CANCELED", stop="77059.52"),
+    ]
+
+    result = reconciler(store, orders).reconcile(entry_order_id="3489476")
+    saved = store.load()[0]
+
+    assert result.state == "EXCHANGE_EXIT_RECONCILED"
+    assert result.safe_to_software_exit is False
+    assert result.mutation_performed is True
+    assert saved["status"] == "CLOSED"
+    assert saved["exit_reason"] == "TP_HIT"
+    assert saved["exit_order_id"] == "11"
+
+
+def test_filled_sl_closes_locally_triggered_position(tmp_path) -> None:
+    store = position_store(tmp_path)
+    store.mark_triggered("3489476", "SL_HIT", 77059.52)
+    orders = [
+        protective(11, "protect-3489476-tp", "LIMIT_MAKER", "CANCELED", price="78483.55"),
+        protective(
+            12,
+            "protect-3489476-sl",
+            "STOP_LOSS",
+            "FILLED",
+            stop="77059.52",
+            executed="0.00012",
+            quote="9.2471424",
+        ),
+    ]
+
+    result = reconciler(store, orders).reconcile(entry_order_id="3489476")
+    saved = store.load()[0]
+
+    assert result.state == "EXCHANGE_EXIT_RECONCILED"
+    assert result.safe_to_software_exit is False
+    assert result.mutation_performed is True
+    assert saved["status"] == "CLOSED"
+    assert saved["exit_reason"] == "SL_HIT"
+    assert saved["exit_order_id"] == "12"
+
+
 def test_incomplete_protection_fails_closed(tmp_path) -> None:
     orders = [
         protective(12, "protect-3489476-sl", "STOP_LOSS", "CANCELED", stop="77059.52"),
