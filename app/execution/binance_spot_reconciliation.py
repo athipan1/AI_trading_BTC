@@ -120,8 +120,12 @@ class BinanceSpotProtectionReconciler:
                     False,
                     "exchange protective exit is filled and local position is already closed",
                 )
-            if position.get("status") != "OPEN":
-                raise RuntimeError("exchange exit filled while local position is not OPEN/CLOSED")
+            local_status = str(position.get("status", "")).upper()
+            if local_status not in {"OPEN", "TP_HIT", "SL_HIT"}:
+                raise RuntimeError(
+                    "exchange exit filled while local position is not "
+                    "OPEN/TP_HIT/SL_HIT/CLOSED"
+                )
             self.position_store.mark_closed(
                 str(entry_order_id),
                 exit_order_id=str(filled["orderId"]),
