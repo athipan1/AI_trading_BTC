@@ -60,7 +60,7 @@ class TestnetAutoTrader:
         )
         if len(positions) > 1:
             reason = (
-                f"more than one tracked OPEN position exists for {self.symbol} "
+                f"more than one unresolved tracked position exists for {self.symbol} "
                 f"strategy={self.strategy_id}"
             )
             self.state_store.halt(reason)
