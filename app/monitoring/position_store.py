@@ -51,7 +51,7 @@ class PositionStore:
             if str(existing.get("order_id")) == str(order_id):
                 return existing
             if (
-                existing.get("status") == "OPEN"
+                existing.get("status") in {"OPEN", "TP_HIT", "SL_HIT"}
                 and existing.get("symbol") == normalized_symbol
                 and str(existing.get("strategy_id", "baseline")).lower() == normalized_strategy
             ):
@@ -162,7 +162,7 @@ class PositionStore:
         return [
             item
             for item in self.load()
-            if item.get("status") in {"OPEN", "TP_HIT", "SL_HIT"}
+            if item.get("status") == "OPEN"
             and (normalized_symbol is None or item.get("symbol") == normalized_symbol)
             and (
                 normalized_strategy is None
