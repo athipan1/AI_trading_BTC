@@ -54,7 +54,7 @@ class TestnetAutoTrader:
         self.protection_guard = protection_guard
 
     def _active_position(self) -> dict[str, Any] | None:
-        positions = self.position_store.active_positions(
+        positions = self.position_store.unresolved_positions(
             self.symbol,
             strategy_id=self.strategy_id,
         )
