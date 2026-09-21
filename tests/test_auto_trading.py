@@ -282,4 +282,4 @@ def test_triggered_position_blocks_second_position_in_store(tmp_path) -> None:
             exit_mode="fixed_tp_sl",
         )
 
-    assert store.count_active(strategy_id="baseline") == 1
+    assert store.count_active(strategy_id="baseline") == 0\n    assert len(store.unresolved_positions(strategy_id="baseline")) == 1
