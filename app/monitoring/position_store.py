@@ -162,7 +162,7 @@ class PositionStore:
         return [
             item
             for item in self.load()
-            if item.get("status") == "OPEN"
+            if item.get("status") in {"OPEN", "TP_HIT", "SL_HIT"}
             and (normalized_symbol is None or item.get("symbol") == normalized_symbol)
             and (
                 normalized_strategy is None
