@@ -180,7 +180,7 @@ start_native() {
     echo "$name: already running PID=$(cat "$PID_DIR/$name.pid")"
     return
   fi
-  nohup bash -lc "cd '$REPO_ROOT'; export PYTHONPATH='$REPO_ROOT'; set -a; source '$REPO_ROOT/.env'; set +a; exec $command" \
+  nohup bash -lc "cd '$REPO_ROOT'; export PYTHONPATH='$REPO_ROOT'; export PYTHONUNBUFFERED=1; set -a; source '$REPO_ROOT/.env'; set +a; exec $command" \
     > "$LOG_DIR/$name.log" 2>&1 &
   echo $! > "$PID_DIR/$name.pid"
   echo "$name: started PID=$!"
