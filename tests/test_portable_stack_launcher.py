@@ -40,6 +40,14 @@ def test_launcher_is_idempotent_for_native_processes() -> None:
     assert "runtime/pids" not in source or "PID_DIR" in source
 
 
+def test_native_python_services_use_unbuffered_output_for_runtime_logs() -> None:
+    source = LAUNCHER.read_text(encoding="utf-8")
+    body = source.split("start_native() {", 1)[1].split("\n}\n\ntermux_start_research_scheduler", 1)[0]
+
+    assert "export PYTHONUNBUFFERED=1" in body
+    assert '> "$LOG_DIR/$name.log" 2>&1 &' in body
+
+
 def test_termux_hermes_tracks_the_real_node_server_pid() -> None:
     source = LAUNCHER.read_text(encoding="utf-8")
 
