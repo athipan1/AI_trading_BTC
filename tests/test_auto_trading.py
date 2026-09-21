@@ -228,3 +228,59 @@ def test_exit_notification_failure_does_not_fail_close(tmp_path) -> None:
     assert result["line_notification"] == "warning:RuntimeError"
     assert broker.sell_calls == 1
     assert trader.position_store.count_active() == 0
+
+
+def test_triggered_position_remains_active_and_blocks_new_buy(tmp_path) -> None:
+    broker = FakeBroker()
+    trader = make_trader(tmp_path, broker=broker)
+    position = trader.position_store.add_long_position(
+        order_id="legacy-1",
+        symbol="BTC/USDT",
+        entry_price=100.0,
+        quantity=0.1,
+        take_profit=104.0,
+        stop_loss=98.0,
+        strategy_id="baseline",
+        exit_mode="fixed_tp_sl",
+    )
+    trader.position_store.mark_triggered(position["order_id"], "TP_HIT", 104.0)
+
+    broker.price = 105.0
+    result = trader.run_once()
+
+    assert result["event"] == "POSITION_CLOSED"
+    assert result["reason"] == "TP_HIT"
+    assert result["entry_position"]["order_id"] == "legacy-1"
+    assert broker.buy_calls == 0
+    assert broker.sell_calls == 1
+    assert trader.position_store.count_active() == 0
+
+
+def test_triggered_position_blocks_second_position_in_store(tmp_path) -> None:
+    store = PositionStore(tmp_path / "positions.json")
+    position = store.add_long_position(
+        order_id="legacy-1",
+        symbol="BTC/USDT",
+        entry_price=100.0,
+        quantity=0.1,
+        take_profit=104.0,
+        stop_loss=98.0,
+        strategy_id="baseline",
+        exit_mode="fixed_tp_sl",
+    )
+    store.mark_triggered(position["order_id"], "SL_HIT", 98.0)
+
+    with pytest.raises(ValueError, match="already has an OPEN position"):
+        store.add_long_position(
+            order_id="new-2",
+            symbol="BTC/USDT",
+            entry_price=99.0,
+            quantity=0.1,
+            take_profit=103.0,
+            stop_loss=97.0,
+            strategy_id="baseline",
+            exit_mode="fixed_tp_sl",
+        )
+
+    assert store.count_active(strategy_id="baseline") == 0
+    assert len(store.unresolved_positions(strategy_id="baseline")) == 1
