@@ -25,6 +25,10 @@ class Hermes3DPromotionReader(Protocol):
     def snapshot(self) -> dict[str, Any]: ...
 
 
+class Hermes3DTradeHistoryReader(Protocol):
+    def history(self) -> dict[str, Any]: ...
+
+
 class Hermes3DValidationSimulator(Protocol):
     @classmethod
     def allowed_events(cls) -> tuple[str, ...]: ...
@@ -37,6 +41,7 @@ def build_hermes3d_router(
     event_stream: Hermes3DEventStream | None = None,
     analytics_reader: Hermes3DAnalyticsReader | None = None,
     promotion_reader: Hermes3DPromotionReader | None = None,
+    trade_history_reader: Hermes3DTradeHistoryReader | None = None,
     validation_simulator: Hermes3DValidationSimulator | None = None,
     validation_simulator_enabled: bool = False,
 ) -> APIRouter:
@@ -69,6 +74,12 @@ def build_hermes3d_router(
         @router.get("/analytics")
         def analytics() -> dict[str, Any]:
             return analytics_reader.analytics()
+
+    if trade_history_reader is not None:
+
+        @router.get("/history")
+        def history() -> dict[str, Any]:
+            return trade_history_reader.history()
 
     if validation_simulator is not None:
 
