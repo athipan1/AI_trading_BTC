@@ -8,6 +8,7 @@ const ALLOWED_RESOURCES = new Set([
   "state",
   "registry",
   "analytics",
+  "history",
   "events",
   "research-operations",
 ]);
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest) {
   const resource = request.nextUrl.searchParams.get("resource") ?? "state";
   if (!ALLOWED_RESOURCES.has(resource)) {
     return NextResponse.json(
-      { error: "Trading Room is read-only. Allowed resources: health, state, registry, analytics, events, research-operations." },
+      { error: "Trading Room is read-only. Allowed resources: health, state, registry, analytics, history, events, research-operations." },
       { status: 400 }
     );
   }
