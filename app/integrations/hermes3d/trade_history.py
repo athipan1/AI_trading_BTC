@@ -86,7 +86,11 @@ class Hermes3DTradeHistoryProjection:
             if position.get("status") == "CLOSED"
         ]
         closed.sort(key=lambda item: str(item.get("closed_at") or ""), reverse=True)
-        evaluated = [float(item["realized_pnl_usdt"]) for item in closed if item["realized_pnl_usdt"] is not None]
+        evaluated = [
+            float(item["realized_pnl_usdt"])
+            for item in closed
+            if item["realized_pnl_usdt"] is not None
+        ]
         wins = sum(value > 0 for value in evaluated)
         losses = sum(value < 0 for value in evaluated)
         breakeven = sum(value == 0 for value in evaluated)
