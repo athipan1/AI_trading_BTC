@@ -14,6 +14,7 @@ from app.integrations.hermes3d.production_projection import Hermes3DProductionJo
 from app.integrations.hermes3d.quant_analytics import Hermes3DQuantAnalyticsProjection
 from app.integrations.hermes3d.router import build_hermes3d_router
 from app.integrations.hermes3d.simulator import Hermes3DValidationEventSimulator
+from app.integrations.hermes3d.trade_history import Hermes3DTradeHistoryProjection
 from app.market_data.service import MarketDataError, MarketDataService
 from app.monitoring.binance_fill_reconciler import BinanceSpotFillSource, PositionFillReconciler
 from app.monitoring.position_store import PositionStore
@@ -83,6 +84,10 @@ hermes3d_analytics = Hermes3DQuantAnalyticsProjection(
     futures_position_store=hermes3d_futures_positions,
     validation_position_store=phase41_validation_positions,
 )
+hermes3d_trade_history = Hermes3DTradeHistoryProjection(
+    spot_position_store=hermes3d_spot_positions,
+    futures_position_store=hermes3d_futures_positions,
+)
 hermes3d_events = Hermes3DEventStream(
     state_reader=hermes3d_projection,
     journal=hermes3d_journal,
@@ -98,6 +103,7 @@ app.include_router(
         hermes3d_events,
         analytics_reader=hermes3d_analytics,
         promotion_reader=research_promotion,
+        trade_history_reader=hermes3d_trade_history,
         validation_simulator=hermes3d_validation_simulator,
         validation_simulator_enabled=settings.hermes3d_validation_simulator_enabled,
     )
