@@ -56,6 +56,7 @@ research_operations = ResearchOperationsProjection(
     promotion_observability=research_promotion,
     integrity_report_path=settings.research_integrity_report,
     checkpoint_path=settings.research_forward_oos_checkpoint,
+    milestone_history_path=settings.research_milestone_history,
     scheduler_state_path=settings.research_scheduler_state,
 )
 phase41_validation_positions = PositionStore(settings.phase41_validation_position_store)
