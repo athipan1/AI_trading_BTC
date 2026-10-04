@@ -58,6 +58,12 @@ export PYTHONPATH="${PYTHONPATH:-.}"
   --gate-manifest "$RESEARCH_DIR/phase563_promotion_gate_manifest.json" \
   --output "$RESEARCH_DIR/phase563_promotion_gate.json"
 
+"$PYTHON_BIN" scripts/run_phase568_oos_milestone_history.py \
+  --promotion "$RESEARCH_DIR/phase563_promotion_gate.json" \
+  --integrity "$RESEARCH_DIR/phase565_evidence_integrity.json" \
+  --checkpoint "$RESEARCH_DIR/phase562_forward_oos_checkpoint.json" \
+  --history "$RESEARCH_DIR/phase568_oos_milestones.json"
+
 if ! "$PYTHON_BIN" scripts/run_phase566_oos_line_alert.py \
   --promotion "$RESEARCH_DIR/phase563_promotion_gate.json" \
   --integrity "$RESEARCH_DIR/phase565_evidence_integrity.json" \

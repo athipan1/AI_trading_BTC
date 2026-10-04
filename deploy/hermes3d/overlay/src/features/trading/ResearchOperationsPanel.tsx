@@ -14,6 +14,25 @@ type Counter = {
   required?: number | null;
 };
 
+type MilestoneEntry = {
+  milestone_signals?: number;
+  observed_signals?: number;
+  capture_mode?: string;
+  recorded_at?: string;
+  evidence_stage?: string | null;
+  promotion?: {
+    state?: string | null;
+  };
+  performance_gate?: {
+    policy_metrics?: {
+      expectancy_r?: number | null;
+      profit_factor?: number | null;
+      max_drawdown_r?: number | null;
+      total_realized_r?: number | null;
+    };
+  };
+};
+
 type ResearchOperations = {
   operational_state?: string;
   forward_oos?: {
@@ -37,6 +56,13 @@ type ResearchOperations = {
     policy?: boolean;
     threshold?: boolean;
   } | null;
+  milestone_evidence?: {
+    operational_state?: string;
+    targets?: number[];
+    recorded_count?: number;
+    next_target?: number | null;
+    milestones?: MilestoneEntry[];
+  };
   scheduler?: {
     operational_state?: string;
     last_result?: string | null;
@@ -69,6 +95,11 @@ type Labels = {
   scheduler: string;
   schedule: string;
   lastAttempt: string;
+  evidenceJourney: string;
+  waiting: string;
+  expectancy: string;
+  profitFactor: string;
+  drawdown: string;
   yes: string;
   no: string;
   readOnly: string;
@@ -98,6 +129,11 @@ const LABELS: Record<OfficeLocale, Labels> = {
     scheduler: "Scheduler",
     schedule: "เวลารัน",
     lastAttempt: "พยายามล่าสุด",
+    evidenceJourney: "เส้นทางหลักฐาน OOS",
+    waiting: "รอข้อมูล",
+    expectancy: "Exp",
+    profitFactor: "PF",
+    drawdown: "DD",
     yes: "ใช่",
     no: "ไม่",
     readOnly: "อ่านอย่างเดียว",
@@ -125,6 +161,11 @@ const LABELS: Record<OfficeLocale, Labels> = {
     scheduler: "Scheduler",
     schedule: "Schedule",
     lastAttempt: "Last attempt",
+    evidenceJourney: "OOS Evidence Journey",
+    waiting: "Waiting",
+    expectancy: "Exp",
+    profitFactor: "PF",
+    drawdown: "DD",
     yes: "yes",
     no: "no",
     readOnly: "read only",
@@ -149,6 +190,11 @@ const timestampText = (value?: string | null): string => {
 };
 
 const lockText = (value?: boolean): string => value ? "FROZEN ✓" : "CHECK";
+
+const metricText = (value?: number | null): string => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
+  return value.toFixed(2);
+};
 
 export function ResearchOperationsPanel() {
   const [operations, setOperations] = useState<ResearchOperations | null>(null);
@@ -242,6 +288,38 @@ export function ResearchOperationsPanel() {
                   <span className="text-cyan-100/55">{labels.runCount}</span><span>{operations?.forward_oos?.run_count ?? "-"}</span>
                   <span className="text-cyan-100/55">{labels.evidenceStage}</span><span>{operations?.forward_oos?.last_evidence_stage ?? "-"}</span>
                   <span className="text-cyan-100/55">{labels.lastProcessed}</span><span>{timestampText(operations?.forward_oos?.last_processed_until)}</span>
+                </div>
+              </section>
+
+              <section data-oos-evidence-journey className="mt-2 border-t border-violet-300/20 pt-2">
+                <div className="mb-1 font-medium text-cyan-100/80">{labels.evidenceJourney}</div>
+                <div className="space-y-1">
+                  {(operations?.milestone_evidence?.targets ?? [20, 50, 100]).map((target) => {
+                    const entry = operations?.milestone_evidence?.milestones?.find(
+                      (item) => item.milestone_signals === target
+                    );
+                    const metrics = entry?.performance_gate?.policy_metrics;
+                    return (
+                      <div
+                        key={target}
+                        data-oos-milestone={target}
+                        className="grid grid-cols-[42px_1fr] gap-x-2 rounded border border-violet-300/10 px-2 py-1"
+                      >
+                        <strong>{target}</strong>
+                        <div className="min-w-0">
+                          <div className="truncate">
+                            {entry?.promotion?.state ?? labels.waiting}
+                            {entry?.evidence_stage ? " · " + entry.evidence_stage : ""}
+                          </div>
+                          {entry ? (
+                            <div className="truncate text-[10px] text-cyan-100/55">
+                              {labels.expectancy} {metricText(metrics?.expectancy_r)} · {labels.profitFactor} {metricText(metrics?.profit_factor)} · {labels.drawdown} {metricText(metrics?.max_drawdown_r)}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
 

@@ -30,6 +30,10 @@ def _default_research_forward_oos_checkpoint() -> str:
     return _default_research_runtime_artifact("phase562_forward_oos_checkpoint.json")
 
 
+def _default_research_milestone_history() -> str:
+    return _default_research_runtime_artifact("phase568_oos_milestones.json")
+
+
 def _default_research_scheduler_state() -> str:
     deployed = Path("/workspace/AI_trading_BTC/runtime/phase562_daily_scheduler_state.json")
     if deployed.parent.exists():
@@ -73,6 +77,7 @@ class Settings(BaseSettings):
     research_forward_oos_checkpoint: str = Field(
         default_factory=_default_research_forward_oos_checkpoint
     )
+    research_milestone_history: str = Field(default_factory=_default_research_milestone_history)
     research_scheduler_state: str = Field(default_factory=_default_research_scheduler_state)
 
     phase41_validation_trade_enabled: bool = False

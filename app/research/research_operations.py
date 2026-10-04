@@ -14,6 +14,7 @@ class ResearchOperationsProjection:
     INTEGRITY_SCHEMA_VERSION = "evidence_integrity_schema_v1"
     CHECKPOINT_SCHEMA_VERSION = "forward_oos_checkpoint_schema_v1"
     SCHEDULER_SCHEMA_VERSION = "phase562_daily_scheduler_state_v1"
+    MILESTONE_SCHEMA_VERSION = "oos_milestone_evidence_history_v1"
 
     def __init__(
         self,
@@ -22,11 +23,15 @@ class ResearchOperationsProjection:
         integrity_report_path: str | Path,
         checkpoint_path: str | Path,
         scheduler_state_path: str | Path,
+        milestone_history_path: str | Path | None = None,
     ) -> None:
         self.promotion_observability = promotion_observability
         self.integrity_report_path = Path(integrity_report_path)
         self.checkpoint_path = Path(checkpoint_path)
         self.scheduler_state_path = Path(scheduler_state_path)
+        self.milestone_history_path = (
+            Path(milestone_history_path) if milestone_history_path is not None else None
+        )
 
     @staticmethod
     def _safe_dict(value: Any) -> dict[str, Any]:
@@ -117,6 +122,83 @@ class ResearchOperationsProjection:
             "artifact": self._artifact(self.checkpoint_path, "HEALTHY"),
         }
 
+    def _milestone_snapshot(self) -> dict[str, Any]:
+        path = self.milestone_history_path
+        if path is None:
+            return {
+                "operational_state": "NOT_CONFIGURED",
+                "targets": [20, 50, 100],
+                "recorded_count": 0,
+                "next_target": 20,
+                "milestones": [],
+                "artifact": None,
+            }
+
+        payload, read_state, error = self._read_json_object(
+            path,
+            expected_phase="5.6.8",
+            expected_schema=self.MILESTONE_SCHEMA_VERSION,
+        )
+        if payload is None:
+            return {
+                "operational_state": read_state,
+                "targets": [20, 50, 100],
+                "recorded_count": 0,
+                "next_target": 20,
+                "milestones": [],
+                "artifact": self._artifact(path, read_state, error),
+            }
+
+        targets = payload.get("milestone_targets")
+        milestones = payload.get("milestones")
+        if not isinstance(targets, list) or any(
+            isinstance(value, bool) or not isinstance(value, int) for value in targets
+        ):
+            return {
+                "operational_state": "INVALID",
+                "targets": [20, 50, 100],
+                "recorded_count": 0,
+                "next_target": 20,
+                "milestones": [],
+                "artifact": self._artifact(
+                    path,
+                    "INVALID",
+                    "milestone_targets must contain integers",
+                ),
+            }
+        if not isinstance(milestones, list) or any(
+            not isinstance(item, dict) for item in milestones
+        ):
+            return {
+                "operational_state": "INVALID",
+                "targets": targets,
+                "recorded_count": 0,
+                "next_target": targets[0] if targets else None,
+                "milestones": [],
+                "artifact": self._artifact(
+                    path,
+                    "INVALID",
+                    "milestones must contain JSON objects",
+                ),
+            }
+
+        recorded = {
+            item.get("milestone_signals")
+            for item in milestones
+            if isinstance(item.get("milestone_signals"), int)
+            and not isinstance(item.get("milestone_signals"), bool)
+        }
+        remaining = [target for target in targets if target not in recorded]
+        return {
+            "operational_state": "HEALTHY",
+            "targets": targets,
+            "recorded_count": len(milestones),
+            "next_target": remaining[0] if remaining else None,
+            "milestones": milestones,
+            "candidate_pin": payload.get("candidate_pin"),
+            "artifact": self._artifact(path, "HEALTHY"),
+        }
+
     def _scheduler_snapshot(self) -> dict[str, Any]:
         payload, read_state, error = self._read_json_object(
             self.scheduler_state_path,
@@ -170,6 +252,7 @@ class ResearchOperationsProjection:
         decision = self._safe_dict(promotion.get("decision"))
         integrity = self._integrity_snapshot()
         checkpoint = self._checkpoint_snapshot()
+        milestones = self._milestone_snapshot()
         scheduler = self._scheduler_snapshot()
 
         signals = self._safe_dict(evidence.get("signals"))
@@ -184,6 +267,7 @@ class ResearchOperationsProjection:
                 promotion_state,
                 integrity_health,
                 str(checkpoint.get("operational_state") or "UNKNOWN"),
+                str(milestones.get("operational_state") or "UNKNOWN"),
                 str(scheduler.get("operational_state") or "UNKNOWN"),
             ]
         )
@@ -223,6 +307,7 @@ class ResearchOperationsProjection:
                 "operational_state": promotion_state,
             },
             "frozen_contract": promotion.get("frozen_contract"),
+            "milestone_evidence": milestones,
             "scheduler": scheduler,
             "safety": {
                 "research_only": True,
