@@ -140,7 +140,6 @@ class FuturesShortAutoTrader:
         *,
         signal: TradeSignal,
         candle_ms: int,
-        notional_usdt: float,
         order_plan: FuturesMarketShortPlan,
     ) -> dict[str, Any]:
         self.state_store.begin_order_attempt(
@@ -152,7 +151,10 @@ class FuturesShortAutoTrader:
         try:
             order = self.broker.submit_market_short(order_plan)
         except Exception as exc:
-            self.state_store.mark_order_uncertain(exc)
+            self.state_store.mark_order_uncertain(
+                exc,
+                reconciliation_target="Binance Futures demo",
+            )
             raise AutoTradingHalted(
                 "SHORT submission failed after local attempt began; automation halted"
             ) from exc
@@ -161,7 +163,10 @@ class FuturesShortAutoTrader:
         quantity = order.get("filled")
         if order_id is None or not fill_price or not quantity:
             error = RuntimeError("Futures SHORT acknowledgement is missing fill data")
-            self.state_store.mark_order_uncertain(error)
+            self.state_store.mark_order_uncertain(
+                error,
+                reconciliation_target="Binance Futures demo",
+            )
             raise AutoTradingHalted(str(error))
         self.state_store.mark_order_acknowledged(str(order_id))
         take_profit, stop_loss = self._levels_from_fill(signal, float(fill_price))
@@ -215,7 +220,10 @@ class FuturesShortAutoTrader:
                 float(position["quantity"]),
             )
         except Exception as exc:
-            self.state_store.mark_order_uncertain(exc)
+            self.state_store.mark_order_uncertain(
+                exc,
+                reconciliation_target="Binance Futures demo",
+            )
             raise AutoTradingHalted(
                 "SHORT close submission failed after local attempt began; automation halted"
             ) from exc
@@ -223,7 +231,10 @@ class FuturesShortAutoTrader:
         exit_price = order.get("average")
         if order_id is None or not exit_price:
             error = RuntimeError("Futures close-SHORT acknowledgement is missing fill data")
-            self.state_store.mark_order_uncertain(error)
+            self.state_store.mark_order_uncertain(
+                error,
+                reconciliation_target="Binance Futures demo",
+            )
             raise AutoTradingHalted(str(error))
         self.state_store.mark_order_acknowledged(str(order_id))
         closed = self.position_store.mark_closed(
@@ -387,6 +398,5 @@ class FuturesShortAutoTrader:
         return self._enter_short(
             signal=signal,
             candle_ms=candle_ms,
-            notional_usdt=notional,
             order_plan=order_plan,
         )
