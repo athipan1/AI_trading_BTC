@@ -281,7 +281,11 @@ class OOSMilestoneEvidenceHistory:
             expected_phase="5.6.2",
         )
 
-        if integrity.get("state") != "PASS" or integrity.get("integrity_ok") is not True:
+        if (
+            integrity.get("state") != "PASS"
+            or integrity.get("integrity_ok") is not True
+            or integrity.get("operational_state") != "HEALTHY"
+        ):
             return {
                 "phase": "5.6.8",
                 "state": "BLOCKED_INTEGRITY",
