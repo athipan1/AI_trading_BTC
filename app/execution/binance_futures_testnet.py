@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+from dataclasses import dataclass
 from decimal import ROUND_DOWN, Decimal
 from urllib.parse import urlencode, urlparse
 
@@ -12,6 +13,19 @@ from app.models import Candle
 
 class BinanceFuturesTestnetSafetyError(RuntimeError):
     """Raised when the Futures execution target is not the Binance demo host."""
+
+
+class BinanceFuturesEntryValidationError(ValueError):
+    """Raised when a Futures entry cannot be submitted before any POST occurs."""
+
+
+@dataclass(frozen=True)
+class FuturesMarketShortPlan:
+    symbol: str
+    exchange_symbol: str
+    quantity: Decimal
+    reference_price: float
+    requested_notional_usdt: float
 
 
 class BinanceFuturesTestnetBroker:
@@ -270,31 +284,53 @@ class BinanceFuturesTestnetBroker:
             "order_sent": False,
         }
 
-    def _market_quantity(self, symbol: str, notional_usdt: float) -> Decimal:
+    def _market_quantity_and_price(
+        self,
+        symbol: str,
+        notional_usdt: float,
+    ) -> tuple[Decimal, Decimal]:
         market = self._market(symbol)
         minimum = self._market_min_notional(market)
-        if Decimal(str(notional_usdt)) < minimum:
-            raise ValueError(
+        requested = Decimal(str(notional_usdt))
+        if requested < minimum:
+            raise BinanceFuturesEntryValidationError(
                 f"notional_usdt is below Futures demo minimum of {float(minimum):.2f} USDT"
             )
         if notional_usdt > self.max_order_notional_usdt:
-            raise ValueError(
+            raise BinanceFuturesEntryValidationError(
                 f"notional_usdt exceeds hard demo cap of "
                 f"{self.max_order_notional_usdt:.2f} USDT"
             )
         step = self._market_step_size(market)
         price = Decimal(str(self.current_price(symbol)))
-        quantity = (Decimal(str(notional_usdt)) / price / step).to_integral_value(
-            rounding=ROUND_DOWN
-        ) * step
+        quantity = (requested / price / step).to_integral_value(rounding=ROUND_DOWN) * step
         if quantity <= 0:
-            raise ValueError("calculated Futures quantity is zero")
+            raise BinanceFuturesEntryValidationError("calculated Futures quantity is zero")
         if quantity * price < minimum:
-            raise ValueError(
+            raise BinanceFuturesEntryValidationError(
                 "rounded Futures quantity falls below minimum entry notional; "
                 "increase requested notional slightly"
             )
+        return quantity, price
+
+    def _market_quantity(self, symbol: str, notional_usdt: float) -> Decimal:
+        quantity, _ = self._market_quantity_and_price(symbol, notional_usdt)
         return quantity
+
+    def prepare_market_short(
+        self,
+        symbol: str,
+        notional_usdt: float,
+    ) -> FuturesMarketShortPlan:
+        exchange_symbol, _, _ = self._symbol_parts(symbol)
+        quantity, reference_price = self._market_quantity_and_price(symbol, notional_usdt)
+        return FuturesMarketShortPlan(
+            symbol=symbol.upper().strip(),
+            exchange_symbol=exchange_symbol,
+            quantity=quantity,
+            reference_price=float(reference_price),
+            requested_notional_usdt=float(notional_usdt),
+        )
 
     def _order_result(self, order: dict, symbol: str, fallback_price: float) -> dict:
         order_id = order.get("orderId")
@@ -315,25 +351,31 @@ class BinanceFuturesTestnetBroker:
             "average": float(avg_price),
         }
 
-    def place_market_short(self, symbol: str, notional_usdt: float) -> dict:
-        exchange_symbol, _, _ = self._symbol_parts(symbol)
-        quantity = self._market_quantity(symbol, notional_usdt)
-        fallback_price = self.current_price(symbol)
+    def submit_market_short(self, plan: FuturesMarketShortPlan) -> dict:
+        if plan.quantity <= 0:
+            raise BinanceFuturesTestnetSafetyError("prepared Futures quantity must be positive")
+        expected_symbol, _, _ = self._symbol_parts(plan.symbol)
+        if expected_symbol != plan.exchange_symbol:
+            raise BinanceFuturesTestnetSafetyError("prepared Futures symbol does not match plan")
         payload = self._request(
             "POST",
             "/fapi/v1/order",
             params={
-                "symbol": exchange_symbol,
+                "symbol": plan.exchange_symbol,
                 "side": "SELL",
                 "type": "MARKET",
-                "quantity": self._format_decimal(quantity),
+                "quantity": self._format_decimal(plan.quantity),
                 "newOrderRespType": "RESULT",
             },
             signed=True,
         )
         if not isinstance(payload, dict):
             raise RuntimeError("invalid Futures SHORT order response")
-        return self._order_result(payload, symbol, fallback_price)
+        return self._order_result(payload, plan.symbol, plan.reference_price)
+
+    def place_market_short(self, symbol: str, notional_usdt: float) -> dict:
+        plan = self.prepare_market_short(symbol, notional_usdt)
+        return self.submit_market_short(plan)
 
     def close_market_short(self, symbol: str, quantity: float) -> dict:
         if quantity <= 0:
