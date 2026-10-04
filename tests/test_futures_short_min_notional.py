@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.auto_trading.futures_short_engine import FuturesShortAutoTrader
-from app.auto_trading.state_store import AutoTradeStateStore
+from app.auto_trading.state_store import AutoTradeStateStore, AutoTradingHalted
 from app.execution.binance_futures_testnet import (
     BinanceFuturesEntryValidationError,
     BinanceFuturesTestnetBroker,
@@ -184,7 +184,10 @@ def test_submit_failure_after_attempt_begins_still_halts_fail_closed(
         candle_limit=201,
     )
 
-    with pytest.raises(Exception, match="SHORT submission failed after local attempt began"):
+    with pytest.raises(
+        AutoTradingHalted,
+        match="SHORT submission failed after local attempt began",
+    ):
         trader.run_once()
 
     assert broker.submit_calls == 1
