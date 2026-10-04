@@ -295,6 +295,7 @@ class OOSMilestoneEvidenceHistory:
         signals = self._int_counter(sample.get("signals"), field="signals")
         candidate_pin = self._candidate_pin(promotion)
         output_path = Path(history_path)
+        history_existed = output_path.exists()
         history = self._load_history(output_path, candidate_pin=candidate_pin)
         entries = history["milestones"]
         assert isinstance(entries, list)
@@ -330,7 +331,7 @@ class OOSMilestoneEvidenceHistory:
             previous_hash = str(entry["snapshot_hash"])
 
         self._verify_history(history, candidate_pin=candidate_pin)
-        if appended or not output_path.exists():
+        if appended or not history_existed:
             self._write_json(output_path, history)
 
         remaining = [
@@ -339,7 +340,7 @@ class OOSMilestoneEvidenceHistory:
         return {
             "phase": "5.6.8",
             "state": "RECORDED" if appended else "NO_MILESTONE_DUE",
-            "history_mutated": bool(appended) or not output_path.exists(),
+            "history_mutated": bool(appended) or not history_existed,
             "recorded_milestones": appended,
             "observed_signals": signals,
             "next_milestone": remaining[0] if remaining else None,
