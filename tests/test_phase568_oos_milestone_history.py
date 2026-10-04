@@ -100,12 +100,16 @@ def _promotion(*, signals: int, selected: int, state: str = "REJECT") -> dict[st
     }
 
 
-def _integrity(*, passed: bool = True) -> dict[str, object]:
+def _integrity(
+    *,
+    passed: bool = True,
+    operational_state: str = "HEALTHY",
+) -> dict[str, object]:
     return {
         "schema_version": "evidence_integrity_schema_v1",
         "phase": "5.6.5",
         "state": "PASS" if passed else "FAIL",
-        "operational_state": "HEALTHY",
+        "operational_state": operational_state,
         "integrity_ok": passed,
     }
 
@@ -240,6 +244,22 @@ def test_phase568_backfill_is_explicit_when_threshold_was_crossed(tmp_path: Path
 def test_phase568_integrity_failure_does_not_mutate_history(tmp_path: Path) -> None:
     promotion, integrity, checkpoint, history = _paths(tmp_path, signals=20)
     _write(integrity, _integrity(passed=False))
+
+    result = OOSMilestoneEvidenceHistory().record(
+        promotion_path=promotion,
+        integrity_path=integrity,
+        checkpoint_path=checkpoint,
+        history_path=history,
+    )
+
+    assert result["state"] == "BLOCKED_INTEGRITY"
+    assert result["history_mutated"] is False
+    assert not history.exists()
+
+
+def test_phase568_stale_integrity_does_not_mutate_history(tmp_path: Path) -> None:
+    promotion, integrity, checkpoint, history = _paths(tmp_path, signals=20)
+    _write(integrity, _integrity(operational_state="STALE"))
 
     result = OOSMilestoneEvidenceHistory().record(
         promotion_path=promotion,
