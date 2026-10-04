@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from app.auto_trading.state_store import AutoTradeStateStore, AutoTradingHalted
-from app.execution.binance_futures_testnet import BinanceFuturesTestnetBroker
+from app.execution.binance_futures_testnet import (
+    BinanceFuturesEntryValidationError,
+    BinanceFuturesTestnetBroker,
+    FuturesMarketShortPlan,
+)
 from app.models import TradeAction, TradeSignal
 from app.monitoring.position_store import PositionStore
 from app.notifications.line_messaging import (
@@ -136,7 +140,7 @@ class FuturesShortAutoTrader:
         *,
         signal: TradeSignal,
         candle_ms: int,
-        notional_usdt: float,
+        order_plan: FuturesMarketShortPlan,
     ) -> dict[str, Any]:
         self.state_store.begin_order_attempt(
             action="SHORT",
@@ -145,9 +149,12 @@ class FuturesShortAutoTrader:
             candle_ms=candle_ms,
         )
         try:
-            order = self.broker.place_market_short(self.symbol, notional_usdt)
+            order = self.broker.submit_market_short(order_plan)
         except Exception as exc:
-            self.state_store.mark_order_uncertain(exc)
+            self.state_store.mark_order_uncertain(
+                exc,
+                reconciliation_target="Binance Futures demo",
+            )
             raise AutoTradingHalted(
                 "SHORT submission failed after local attempt began; automation halted"
             ) from exc
@@ -156,7 +163,10 @@ class FuturesShortAutoTrader:
         quantity = order.get("filled")
         if order_id is None or not fill_price or not quantity:
             error = RuntimeError("Futures SHORT acknowledgement is missing fill data")
-            self.state_store.mark_order_uncertain(error)
+            self.state_store.mark_order_uncertain(
+                error,
+                reconciliation_target="Binance Futures demo",
+            )
             raise AutoTradingHalted(str(error))
         self.state_store.mark_order_acknowledged(str(order_id))
         take_profit, stop_loss = self._levels_from_fill(signal, float(fill_price))
@@ -210,7 +220,10 @@ class FuturesShortAutoTrader:
                 float(position["quantity"]),
             )
         except Exception as exc:
-            self.state_store.mark_order_uncertain(exc)
+            self.state_store.mark_order_uncertain(
+                exc,
+                reconciliation_target="Binance Futures demo",
+            )
             raise AutoTradingHalted(
                 "SHORT close submission failed after local attempt began; automation halted"
             ) from exc
@@ -218,7 +231,10 @@ class FuturesShortAutoTrader:
         exit_price = order.get("average")
         if order_id is None or not exit_price:
             error = RuntimeError("Futures close-SHORT acknowledgement is missing fill data")
-            self.state_store.mark_order_uncertain(error)
+            self.state_store.mark_order_uncertain(
+                error,
+                reconciliation_target="Binance Futures demo",
+            )
             raise AutoTradingHalted(str(error))
         self.state_store.mark_order_acknowledged(str(order_id))
         closed = self.position_store.mark_closed(
@@ -360,8 +376,27 @@ class FuturesShortAutoTrader:
                 "diagnostic": diagnostic.to_dict(),
             }
 
+        try:
+            order_plan = self.broker.prepare_market_short(self.symbol, notional)
+        except BinanceFuturesEntryValidationError as exc:
+            self.state_store.mark_candle_processed(candle_ms)
+            return {
+                "event": "ENTRY_SKIPPED_MIN_NOTIONAL",
+                "strategy_id": self.strategy_id,
+                "symbol": self.symbol,
+                "timeframe": self.timeframe,
+                "candle_ms": candle_ms,
+                "candidate_notional_usdt": notional,
+                "minimum_notional_usdt": minimum_notional,
+                "safe_minimum_notional_usdt": safe_minimum_notional,
+                "validation_error": str(exc),
+                "signal": signal.model_dump(mode="json"),
+                "risk": decision.model_dump(mode="json"),
+                "diagnostic": diagnostic.to_dict(),
+            }
+
         return self._enter_short(
             signal=signal,
             candle_ms=candle_ms,
-            notional_usdt=notional,
+            order_plan=order_plan,
         )
