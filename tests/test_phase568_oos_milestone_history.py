@@ -7,6 +7,11 @@ from pathlib import Path
 import pytest
 
 from app.research.oos_milestones import OOSMilestoneEvidenceHistory
+from app.research.promotion_observability import PromotionGateObservability
+from app.research.research_operations import ResearchOperationsProjection
+
+ROOT = Path(__file__).resolve().parents[1]
+PANEL = ROOT / "deploy/hermes3d/overlay/src/features/trading/ResearchOperationsPanel.tsx"
 
 
 def _write(path: Path, payload: dict[str, object]) -> None:
@@ -25,6 +30,10 @@ def _promotion(*, signals: int, selected: int, state: str = "REJECT") -> dict[st
         "rejection_reasons": ["PERFORMANCE_ACCEPTANCE_FAILED"] if state == "REJECT" else [],
         "gate_manifest": {
             "gate_manifest_hash": "gate-hash",
+            "performance_gate": {
+                "minimum_oos_signals": 20,
+                "minimum_policy_selected_trades": 10,
+            },
             "source_frozen_contract": {
                 "manifest_hash": "manifest-hash",
                 "policy_hash": "policy-hash",
@@ -78,6 +87,16 @@ def _promotion(*, signals: int, selected: int, state: str = "REJECT") -> dict[st
                 "win_rate_pct": 14.285714285714285,
             },
         },
+        "safety": {
+            "model_frozen": True,
+            "policy_frozen": True,
+            "threshold_frozen": True,
+        },
+        "production_position_store_mutated": False,
+        "production_execution_mutated": False,
+        "optimization_performed": False,
+        "oos_retuning_performed": False,
+        "auto_production_promotion": False,
     }
 
 
@@ -281,3 +300,57 @@ def test_phase568_daily_wiring_runs_after_promotion_before_line_alert() -> None:
 
     assert phase563 < phase568 < phase566
     assert "phase568_oos_milestones.json" in script
+
+
+def test_phase568_is_projected_into_research_operations_and_ui(tmp_path: Path) -> None:
+    promotion, integrity, checkpoint, history = _paths(tmp_path, signals=20)
+    recorder = OOSMilestoneEvidenceHistory(
+        now_factory=lambda: datetime(2026, 10, 4, 9, 0, tzinfo=UTC)
+    )
+    recorder.record(
+        promotion_path=promotion,
+        integrity_path=integrity,
+        checkpoint_path=checkpoint,
+        history_path=history,
+    )
+
+    scheduler = tmp_path / "scheduler.json"
+    _write(
+        scheduler,
+        {
+            "schema_version": "phase562_daily_scheduler_state_v1",
+            "timezone": "Asia/Bangkok",
+            "scheduled_local_time": "07:10",
+            "last_attempt_at": "2026-10-04T07:10:00+07:00",
+            "last_return_code": 0,
+            "last_result": "SUCCESS",
+            "last_run_local_date": "2026-10-04",
+        },
+    )
+    modified_at = datetime.fromtimestamp(promotion.stat().st_mtime, tz=UTC)
+    projection = ResearchOperationsProjection(
+        promotion_observability=PromotionGateObservability(
+            promotion,
+            now_factory=lambda: modified_at,
+        ),
+        integrity_report_path=integrity,
+        checkpoint_path=checkpoint,
+        milestone_history_path=history,
+        scheduler_state_path=scheduler,
+    )
+
+    snapshot = projection.snapshot()
+
+    assert snapshot["operational_state"] == "HEALTHY"
+    journey = snapshot["milestone_evidence"]
+    assert journey["operational_state"] == "HEALTHY"
+    assert journey["targets"] == [20, 50, 100]
+    assert journey["recorded_count"] == 1
+    assert journey["next_target"] == 50
+    assert journey["milestones"][0]["promotion"]["state"] == "REJECT"
+
+    panel = PANEL.read_text(encoding="utf-8")
+    assert "data-oos-evidence-journey" in panel
+    assert "data-oos-milestone" in panel
+    assert 'evidenceJourney: "เส้นทางหลักฐาน OOS"' in panel
+    assert 'evidenceJourney: "OOS Evidence Journey"' in panel
