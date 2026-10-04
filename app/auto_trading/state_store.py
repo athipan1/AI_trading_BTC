@@ -107,7 +107,12 @@ class AutoTradeStateStore:
         attempt["acknowledged_at"] = self._now()
         self.save(state)
 
-    def mark_order_uncertain(self, error: Exception) -> None:
+    def mark_order_uncertain(
+        self,
+        error: Exception,
+        *,
+        reconciliation_target: str = "Binance Testnet",
+    ) -> None:
         state = self.load()
         attempt = state.get("order_attempt")
         if not isinstance(attempt, dict):
@@ -118,7 +123,8 @@ class AutoTradeStateStore:
         attempt["failed_at"] = self._now()
         state["halted"] = True
         state["halt_reason"] = (
-            "order result is uncertain; reconcile Binance Spot Testnet before restarting automation"
+            f"order result is uncertain; reconcile {reconciliation_target} "
+            "before restarting automation"
         )
         state["halted_at"] = self._now()
         self.save(state)
