@@ -200,6 +200,8 @@ class PositionFillReconciler:
         reconciliation_status = str(position.get("reconciliation_status", "")).upper()
         if status == "CLOSED":
             return reconciliation_status in cls.TERMINAL_CLOSED_STATUSES
+        if status == "ORPHANED":
+            return reconciliation_status == "EXCHANGE_HISTORY_LOST"
         return reconciliation_status == "ENTRY_RECONCILED"
 
     def _reconcile_position(self, position: dict[str, Any]) -> dict[str, Any]:

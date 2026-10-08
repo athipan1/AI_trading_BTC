@@ -43,6 +43,10 @@ def check_once(
     for position in positions:
         if position.get("status") != "OPEN":
             continue
+        if str(position.get("exit_mode", "")).lower() == "fixed_tp_sl":
+            # Exchange-side OCO + protection reconciliation are the source of truth.
+            # The legacy live-price monitor must never advance this lifecycle locally.
+            continue
         symbol = str(position["symbol"])
         price = prices.setdefault(symbol, broker.current_price(symbol))
         take_profit = float(position["take_profit"])
@@ -64,6 +68,8 @@ def check_once(
             )
 
     for position in store.pending_notifications():
+        if str(position.get("exit_mode", "")).lower() == "fixed_tp_sl":
+            continue
         symbol = str(position["symbol"])
         snapshot = broker.account_snapshot(symbol)
         tracked_positions = store.count_active()
