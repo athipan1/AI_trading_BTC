@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from app.monitoring.binance_fill_reconciler import PositionFillReconciler
 from app.monitoring.position_store import PositionStore
 from app.monitoring.spot_orphan_recovery import SpotOrphanAuditService
 
@@ -204,3 +205,36 @@ def test_orphan_quarantine_preserves_entry_audit_without_fake_close(tmp_path: Pa
     assert position["net_realized_pnl"] is None
     assert position["closed_at"] is None
     assert position["orphaned_evidence"]["entry_order_lookup"] == "NOT_FOUND"
+
+
+
+class FailFillSource:
+    source_name = "must_not_be_called"
+
+    def fetch_order_fills(self, symbol: str, order_id: str):
+        raise AssertionError("orphaned exchange-history-lost positions must be terminal")
+
+
+def test_orphaned_position_is_terminal_for_fill_reconciliation(tmp_path: Path) -> None:
+    store = local_store(tmp_path)
+    service = SpotOrphanAuditService(
+        broker=FakeBroker(),  # type: ignore[arg-type]
+        position_store=store,
+    )
+    audit = service.audit(order_id="9324710")
+    service.quarantine(
+        order_id="9324710",
+        reason="exchange history unavailable",
+        audit=audit,
+    )
+
+    result = PositionFillReconciler(
+        position_store=store,
+        fill_source=FailFillSource(),
+        retry_delays=(0.0,),
+    ).reconcile_all()
+
+    assert result["positions_seen"] == 1
+    assert result["skipped"] == 1
+    assert result["attempts"] == 0
+    assert result["error_count"] == 0
