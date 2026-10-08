@@ -256,6 +256,52 @@ class PositionStore:
         self.save(positions)
         return target
 
+    def mark_exchange_history_lost(
+        self,
+        order_id: str,
+        *,
+        reason: str,
+        evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Quarantine an unresolved local position whose exchange lineage is proven absent."""
+        if not reason.strip():
+            raise ValueError("exchange-history-lost reason is required")
+        if not evidence:
+            raise ValueError("exchange-history-lost evidence is required")
+
+        positions = self.load()
+        target: dict[str, Any] | None = None
+        for item in positions:
+            if str(item.get("order_id")) != str(order_id):
+                continue
+            status = str(item.get("status", "")).upper()
+            if status == "CLOSED":
+                raise ValueError("cannot orphan a CLOSED position")
+            if status == "ORPHANED":
+                if str(item.get("reconciliation_status", "")).upper() == "EXCHANGE_HISTORY_LOST":
+                    return item
+                raise ValueError("position is already orphaned with a different reconciliation state")
+            if status not in {"OPEN", "TP_HIT", "SL_HIT"}:
+                raise ValueError(f"cannot orphan position from status {status or 'UNKNOWN'}")
+            if item.get("exit_order_id") is not None or item.get("exit_price") is not None:
+                raise ValueError("cannot orphan a position with a recorded exchange exit")
+            if item.get("gross_realized_pnl") is not None or item.get("net_realized_pnl") is not None:
+                raise ValueError("cannot orphan a position with realized PnL")
+
+            item["status"] = "ORPHANED"
+            item["reconciliation_status"] = "EXCHANGE_HISTORY_LOST"
+            item["orphaned_at"] = self._now()
+            item["orphaned_reason"] = reason.strip()
+            item["orphaned_evidence"] = dict(evidence)
+            item["notification_sent"] = True
+            target = item
+            break
+
+        if target is None:
+            raise KeyError(f"unknown tracked order: {order_id}")
+        self.save(positions)
+        return target
+
     def mark_reconciliation_attempt(self, order_id: str) -> dict[str, Any]:
         positions = self.load()
         target: dict[str, Any] | None = None
