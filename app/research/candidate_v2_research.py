@@ -14,11 +14,9 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-import numpy as np
-
 from app.research.candidate_v2 import POLICIES, EntryQualityPolicy
 from app.research.feature_dataset import ResearchFeatureDatasetProjection
-from app.research.frozen_oos_validation import FrozenOOSValidationResearch
+from app.research.realized_r_metrics import realized_r_selection_metrics
 
 
 @dataclass(frozen=True)
@@ -191,16 +189,12 @@ class CandidateV2Research:
 
     @staticmethod
     def _metrics(rows: list[PreparedTrade], policy: EntryQualityPolicy | None) -> dict[str, Any]:
-        realized = np.asarray([trade.realized_r for trade in rows], dtype=float)
-        selected = np.asarray(
-            [
-                policy is None
-                or policy.passes(trade.features, side=trade.side, regime=trade.regime)
-                for trade in rows
-            ],
-            dtype=bool,
-        )
-        return FrozenOOSValidationResearch._metrics(realized, selected)
+        realized = [trade.realized_r for trade in rows]
+        selected = [
+            policy is None or policy.passes(trade.features, side=trade.side, regime=trade.regime)
+            for trade in rows
+        ]
+        return realized_r_selection_metrics(realized, selected)
 
     def _choose(self, rows: list[PreparedTrade]) -> EntryQualityPolicy:
         candidates = []
