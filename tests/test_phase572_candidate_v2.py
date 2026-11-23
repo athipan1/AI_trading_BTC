@@ -106,6 +106,11 @@ def test_discovery_freezes_after_purged_walk_forward_and_holdout() -> None:
 def test_discovery_rejects_lookahead_and_missing_costs() -> None:
     trades = [_trade(i) for i in range(180)]
     trades[0]["decision_at"] = "2025-01-01T06:00:00+00:00"
+    with pytest.raises(ValueError, match="not pinned to the decision candle"):
+        CandidateV2Research().discover(trades, frozen_at=FREEZE)
+    trades[0]["entry_feature_timestamp_ms"] = int(
+        datetime.fromisoformat(trades[0]["decision_at"]).timestamp() * 1000
+    )
     with pytest.raises(ValueError, match="timestamps violate"):
         CandidateV2Research().discover(trades, frozen_at=FREEZE)
     trades = [_trade(i) for i in range(180)]
