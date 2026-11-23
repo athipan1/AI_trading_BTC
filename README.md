@@ -268,3 +268,9 @@ To submit a virtual market order:
 - `POST /paper/cycle`
 
 The in-memory paper portfolio resets when the service restarts. Binance Spot Testnet automatic execution uses separate local state files and remains isolated from Binance mainnet.
+
+## Phase 5.7 OOS rejection diagnostics (research only)
+
+The Phase 5.7.1 read-only CLI explains failed frozen Promotion Gate checks
+without changing the Phase 5.6 policy or append-only evidence.
+See [Phase 5.7 usage and safety](docs/PHASE57_OOS_DIAGNOSTICS.md).
