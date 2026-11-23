@@ -1,6 +1,7 @@
-"""Pure-Python, selection-level realized-R metrics shared by frozen OOS studies.
+"""Portable realized-R metrics for Phase 5.7 Candidate V2 research.
 
-Returns the Phase 5.6 metric contract. No model fitting, NumPy, or scikit-learn.
+Matches the Phase 5.6 metric schema without changing frozen validator code
+or requiring model fitting, NumPy, or scikit-learn.
 """
 
 from __future__ import annotations
