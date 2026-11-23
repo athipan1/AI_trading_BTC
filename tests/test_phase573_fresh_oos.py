@@ -12,7 +12,7 @@ import pytest
 from app.market_data.service import MarketDataError
 from app.models import Candle
 from app.research.binance_public_ohlcv import BinancePublicOHLCV
-from app.research.candidate_v2 import CandidateV2ReplayStrategy, POLICIES
+from app.research.candidate_v2 import POLICIES
 from app.research.candidate_v2_forward import CandidateV2ForwardAccumulator
 from app.research.candidate_v2_research import CandidateV2Research
 from app.research.historical_market_data import HistoricalMarketDataService
@@ -124,7 +124,6 @@ def _paths(tmp_path: Path) -> dict[str, Path]:
 
 def _fake_replay(self, segments, strategy):
     del self, segments
-    candidate = isinstance(strategy, CandidateV2ReplayStrategy)
     strategy_id = strategy.strategy_id
     # A position opened before freeze but closed after freeze must not be counted.
     old = _trade(strategy_id, FREEZE.replace(minute=0, second=0))
