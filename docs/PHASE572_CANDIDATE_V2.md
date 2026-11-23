@@ -32,6 +32,25 @@ production/exchange strategy**.
 - Candidate V2 **never automatically promotes** to production, even if OOS metrics
   are positive. A separate approval/implementation phase is mandatory.
 
+## Running from Termux
+
+Phase 5.7.2 discovery/forward score calculation uses a dependency-free metrics
+helper and no longer imports scikit-learn or NumPy. The full ML research phases
+still require the scientific Python stack. The Candidate V2 CLI still requires
+the repository's other dependencies (notably Pydantic for replay model contracts).
+
+The paths below are **illustrations**, not literal filenames. On Termux, first
+locate existing research stores:
+
+```bash
+cd ~/AI_trading_BTC
+find "$HOME" -type f \( -name '*promotion*.json' -o -name '*historical*.json' \) 2>/dev/null | head -40
+```
+
+A missing historical discovery store cannot be replaced with the already-inspected
+Phase 5.6 OOS file. If the data lives on a VPS or Docker volume, execute the
+discovery CLI where the historical research store actually exists.
+
 ## Run discovery (once)
 
 Use the existing Phase 5.1 historical **discovery** replay store, NOT the V1
