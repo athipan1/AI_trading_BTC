@@ -282,3 +282,14 @@ The frozen, research-only Triple EMA entry-quality candidate can be studied on
 an untouched discovery holdout, and a post-freeze-only future OOS gate.
 See [Candidate V2 runbook](docs/PHASE572_CANDIDATE_V2.md). No production
 execution/promotion integration is provided.
+
+## Phase 5.7.3 Fresh Candidate V2 OOS (research-only)
+
+Collect post-freeze BTC/USDT H1 evidence using the frozen Candidate V2 manifest,
+public Binance Spot candles, canonical replay and immutable research stores.
+The watcher **never** submits exchange orders or updates V1 OOS evidence.
+See [Phase 5.7.3 Termux / VPS runbook](docs/PHASE573_FRESH_OOS.md).
+
+```bash
+PYTHONPATH=. python scripts/run_phase573_fresh_oos.py
+```
