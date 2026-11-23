@@ -9,6 +9,7 @@ import numpy as np
 
 from app.research.baseline_ml import BaselineMLResearch
 from app.research.feature_dataset import ResearchFeatureDatasetProjection
+from app.research.realized_r_metrics import realized_r_selection_metrics
 from app.research.regime_robustness import RegimeRobustnessResearch
 from app.research.walk_forward import WalkForwardConfig
 
@@ -167,40 +168,8 @@ class FrozenOOSValidationResearch:
 
     @staticmethod
     def _metrics(realized: np.ndarray, mask: np.ndarray) -> dict[str, float | int | None]:
-        selected = realized[mask]
-        if len(selected) == 0:
-            return {
-                "available_signals": int(len(realized)),
-                "trade_count": 0,
-                "selection_rate_pct": 0.0,
-                "win_rate_pct": None,
-                "expectancy_r": None,
-                "total_realized_r": 0.0,
-                "profit_factor": None,
-                "max_drawdown_r": 0.0,
-            }
-        gains = selected[selected > 0]
-        losses = selected[selected < 0]
-        gross_profit = float(np.sum(gains))
-        gross_loss = float(abs(np.sum(losses)))
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else None
-        equity = 0.0
-        peak = 0.0
-        drawdown = 0.0
-        for value in selected:
-            equity += float(value)
-            peak = max(peak, equity)
-            drawdown = max(drawdown, peak - equity)
-        return {
-            "available_signals": int(len(realized)),
-            "trade_count": int(len(selected)),
-            "selection_rate_pct": float(len(selected) / len(realized) * 100),
-            "win_rate_pct": float(np.mean(selected > 0) * 100),
-            "expectancy_r": float(np.mean(selected)),
-            "total_realized_r": float(np.sum(selected)),
-            "profit_factor": float(profit_factor) if profit_factor is not None else None,
-            "max_drawdown_r": float(drawdown),
-        }
+        """Preserve the frozen Phase 5.6 metric contract via a shared pure-Python helper."""
+        return realized_r_selection_metrics(realized, mask)
 
     def validate(
         self,
