@@ -274,3 +274,11 @@ The in-memory paper portfolio resets when the service restarts. Binance Spot Tes
 The Phase 5.7.1 read-only CLI explains failed frozen Promotion Gate checks
 without changing the Phase 5.6 policy or append-only evidence.
 See [Phase 5.7 usage and safety](docs/PHASE57_OOS_DIAGNOSTICS.md).
+
+## Phase 5.7.2 Candidate V2 research
+
+The frozen, research-only Triple EMA entry-quality candidate can be studied on
+**discovery-only** historical replay trades with purged walk-forward validation,
+an untouched discovery holdout, and a post-freeze-only future OOS gate.
+See [Candidate V2 runbook](docs/PHASE572_CANDIDATE_V2.md). No production
+execution/promotion integration is provided.
