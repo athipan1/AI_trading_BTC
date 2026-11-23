@@ -44,7 +44,7 @@ locate existing research stores:
 
 ```bash
 cd ~/AI_trading_BTC
-find "$HOME" -type f \\( -name '*promotion*.json' -o -name '*historical*.json' \\) 2>/dev/null | head -40
+find "$HOME" -type f \( -name '*promotion*.json' -o -name '*historical*.json' \) 2>/dev/null | head -40
 ```
 
 A missing historical discovery store cannot be replaced with the already-inspected
