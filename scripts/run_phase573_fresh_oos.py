@@ -10,9 +10,10 @@ import fcntl
 import json
 import logging
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from app.research.binance_public_ohlcv import BinancePublicOHLCV
 from app.research.candidate_v2_forward import CandidateV2ForwardAccumulator
