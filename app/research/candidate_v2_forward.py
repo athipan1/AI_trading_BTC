@@ -320,7 +320,11 @@ class CandidateV2ForwardAccumulator:
         # Check the original immutable Phase 5.7.2 manifest against all new V2
         # source trades *before* appending anything. No retraining or selection.
         combined = {item["order_id"]: item for item in candidate_existing}
-        combined.update({item["order_id"]: item for item in candidate_new})
+        # Phase 5.7.2 requires canonical historical_replay origin; the store
+        # stamps this only after append. Preview canonical metadata before writing.
+        combined.update(
+            {item["order_id"]: {**item, "data_origin": "historical_replay"} for item in candidate_new}
+        )
         validation = self.researcher.forward_validate(list(combined.values()), manifest=manifest)
         self._check_store(candidate_new, prefix="candidate_v2_", frozen=frozen)
         self._check_store(baseline_new, prefix="triple_ema", frozen=frozen)
