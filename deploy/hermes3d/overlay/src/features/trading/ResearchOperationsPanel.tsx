@@ -431,11 +431,11 @@ export function ResearchOperationsPanel() {
                   <div className="grid grid-cols-2 gap-2 border-t border-violet-300/20 pt-2">
                     <div className="rounded border border-violet-300/20 p-2">
                       <div className="text-cyan-100/55">{labels.v2Closed}</div>
-                      <strong className="text-sm">{operations?.candidate_v2?.counts?.candidate_v2_closed ?? 0}</strong>
+                      <strong className="text-sm">{operations?.candidate_v2?.counts?.candidate_v2_closed ?? "-"}</strong>
                     </div>
                     <div className="rounded border border-violet-300/20 p-2">
                       <div className="text-cyan-100/55">{labels.baselineClosed}</div>
-                      <strong className="text-sm">{operations?.candidate_v2?.counts?.canonical_rule_based_closed ?? 0}</strong>
+                      <strong className="text-sm">{operations?.candidate_v2?.counts?.canonical_rule_based_closed ?? "-"}</strong>
                     </div>
                   </div>
                   {(["candidate_v2", "baseline"] as const).map((name) => (
