@@ -53,7 +53,10 @@ class CandidateV2Watchdog:
         if hb_file.exists():
             try:
                 loaded = json.loads(hb_file.read_text(encoding="utf-8"))
-                if not isinstance(loaded, dict) or loaded.get("schema_version") != self.HEARTBEAT_SCHEMA_VERSION:
+                if (
+                    not isinstance(loaded, dict)
+                    or loaded.get("schema_version") != self.HEARTBEAT_SCHEMA_VERSION
+                ):
                     raise ValueError("invalid heartbeat schema")
                 checked = self._time(loaded.get("last_attempt_at"), "last_attempt_at")
                 heartbeat_age = (now - checked).total_seconds()
@@ -72,7 +75,11 @@ class CandidateV2Watchdog:
                         success_age = float("inf")
                     else:
                         success_age = (now - self._time(previous_success, "last_success_at")).total_seconds()
-                    watcher_state = "CRITICAL" if success_age > self.config.heartbeat_critical_seconds else "WARNING"
+                    watcher_state = (
+                        "CRITICAL"
+                        if success_age > self.config.heartbeat_critical_seconds
+                        else "WARNING"
+                    )
                     issues.append("WATCHER_CONSECUTIVE_FAILURES")
                 elif loaded.get("last_result") == "SUCCESS":
                     if loaded.get("mode") != "watch":
@@ -125,7 +132,10 @@ class CandidateV2Watchdog:
         if latest_file.exists():
             try:
                 report = json.loads(latest_file.read_text(encoding="utf-8"))
-                if not isinstance(report, dict) or report.get("schema_version") != "candidate_v2_forward_accumulation_v1":
+                if (
+                    not isinstance(report, dict)
+                    or report.get("schema_version") != "candidate_v2_forward_accumulation_v1"
+                ):
                     raise ValueError("unsupported V2 report")
                 if report.get("frozen_pin", {}).get("manifest_hash") != integrity.get("manifest_hash"):
                     raise ValueError("V2 report pin mismatch")
