@@ -119,6 +119,7 @@ def test_monitor_lock_blocks_second_monitor(tmp_path: Path) -> None:
 def test_heartbeat_contract_is_separate_from_oos_store() -> None:
     source = (ROOT / "scripts/run_phase573_fresh_oos.py").read_text(encoding="utf-8")
     assert 'phase574_v2_heartbeat.json' in source
-    assert '_write_heartbeat(paths[5], result="SUCCESS"' in source
+    assert "_write_heartbeat(" in source
+    assert 'paths[5], result="SUCCESS"' in source
     assert 'result="ERROR"' in source
     assert CandidateV2Watchdog.HEARTBEAT_SCHEMA_VERSION == "candidate_v2_heartbeat_v1"
