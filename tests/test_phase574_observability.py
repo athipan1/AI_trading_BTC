@@ -7,9 +7,9 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from app.research.candidate_v2_watchdog import CandidateV2Watchdog
 from app.research.promotion_observability import PromotionGateObservability
 from app.research.research_operations import ResearchOperationsProjection
-from app.research.candidate_v2_watchdog import CandidateV2Watchdog
 from scripts.run_phase574_monitor import _monitor_lock, run_once
 
 ROOT = Path(__file__).resolve().parents[1]
