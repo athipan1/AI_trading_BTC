@@ -12,6 +12,7 @@ import logging
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,11 @@ def parse_args() -> argparse.Namespace:
         default="state/research/phase573_v2_latest_report.json",
     )
     parser.add_argument("--until", default=None, help="UTC exclusive, fully closed H1 boundary")
+    parser.add_argument(
+        "--heartbeat",
+        default="state/research/phase574_v2_heartbeat.json",
+        help="Phase 5.7.4 independent watchdog telemetry (not OOS evidence)",
+    )
     parser.add_argument("--watch", action="store_true", help="Poll hourly; no exchange orders")
     parser.add_argument("--interval-seconds", type=int, default=300)
     return parser.parse_args()
@@ -62,6 +68,43 @@ def _write_report(path: Path, payload: dict[str, Any]) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def _write_heartbeat(
+    path: Path,
+    *,
+    result: str,
+    mode: str,
+    report: dict[str, Any] | None = None,
+    error_code: str | None = None,
+) -> None:
+    """Write a liveness observation independent of closed trades / checkpoint changes."""
+    old: dict[str, Any] = {}
+    if path.exists():
+        previous = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(previous, dict) or previous.get("schema_version") != "candidate_v2_heartbeat_v1":
+            raise ValueError("existing V2 heartbeat has invalid schema")
+        old = previous
+    now = datetime.now(UTC).isoformat()
+    status = {
+        "schema_version": "candidate_v2_heartbeat_v1",
+        "phase": "5.7.4",
+        "mode": mode,
+        "last_attempt_at": now,
+        "last_result": result,
+        "last_success_at": now if result == "SUCCESS" else old.get("last_success_at"),
+        "last_accumulator_state": (
+            report.get("state") if report is not None else old.get("last_accumulator_state")
+        ),
+        "last_error_code": error_code,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(status, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
     temporary.replace(path)
@@ -95,6 +138,7 @@ def main() -> int:
         Path(args.baseline_store),
         Path(args.checkpoint),
         Path(args.report),
+        Path(args.heartbeat),
     ]
     if len({path.resolve() for path in paths}) != len(paths):
         raise ValueError("all manifest, OOS evidence, checkpoint and report paths must differ")
@@ -114,6 +158,9 @@ def main() -> int:
                     requested_until=args.until,
                 )
                 _write_report(paths[4], report)
+                _write_heartbeat(
+                    paths[5], result="SUCCESS", mode="watch" if args.watch else "once", report=report
+                )
                 LOGGER.info(
                     "Phase 5.7.3 %s: candidate_closed=%s baseline_closed=%s",
                     report["state"],
@@ -125,6 +172,12 @@ def main() -> int:
                     return 0
             except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
                 LOGGER.exception("Phase 5.7.3 rejected unsafe/incomplete input: %s", exc)
+                _write_heartbeat(
+                    paths[5],
+                    result="ERROR",
+                    mode="watch" if args.watch else "once",
+                    error_code=type(exc).__name__,
+                )
                 if not args.watch:
                     return 1
             if not args.watch:

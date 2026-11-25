@@ -293,3 +293,12 @@ See [Phase 5.7.3 Termux / VPS runbook](docs/PHASE573_FRESH_OOS.md).
 ```bash
 PYTHONPATH=. python scripts/run_phase573_fresh_oos.py
 ```
+
+## Phase 5.7.4: Independent Candidate V2 research reliability
+
+Phase 5.7.4 adds a separate read-only integrity auditor, watcher heartbeat,
+independent monitoring process, deduplicated LINE alerts and optional
+Hermes3D Research V1/V2 tabs. It **never** changes frozen V2 policies, V1
+promotion, evidence, or production execution.
+
+See [Phase 5.7.4 Termux/VPS runbook](docs/PHASE574_RELIABILITY.md).

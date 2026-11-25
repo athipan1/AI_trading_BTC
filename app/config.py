@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     )
     research_milestone_history: str = Field(default_factory=_default_research_milestone_history)
     research_scheduler_state: str = Field(default_factory=_default_research_scheduler_state)
+    research_candidate_v2_health_report: str = Field(
+        default_factory=lambda: _default_research_runtime_artifact("phase574_v2_health.json")
+    )
 
     phase41_validation_trade_enabled: bool = False
     phase41_validation_position_store: str = "state/phase41-validation-positions.json"
