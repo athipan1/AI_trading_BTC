@@ -177,7 +177,9 @@ def test_first_run_without_checkpoint_is_waiting_not_pass(tmp_path: Path) -> Non
 def test_independent_heartbeat_liveness(tmp_path: Path, age: int, expected: str) -> None:
     hb = tmp_path / "hb.json"
     _heartbeat(hb, age_minutes=age)
-    audit = {"integrity_state": "PASS", "checkpoint": {"last_processed_until": (NOW - timedelta(hours=1)).isoformat()},
+    audit = {
+        "integrity_state": "PASS",
+        "checkpoint": {"last_processed_until": (NOW - timedelta(hours=1)).isoformat()},
              "counts": {"candidate_v2_closed": 0, "canonical_rule_based_closed": 0}, "manifest_hash": "abc"}
     health = CandidateV2Watchdog().evaluate(integrity=audit, heartbeat_path=hb,
                                              report_path=tmp_path / "none.json", now=NOW)
@@ -204,10 +206,14 @@ def test_corrupt_heartbeat_detected_and_unknown_when_missing(tmp_path: Path) -> 
     audit = {"integrity_state": "WAITING", "checkpoint": {}, "counts": {}}
     path = tmp_path / "hb.json"
     monitor = CandidateV2Watchdog()
-    unknown = monitor.evaluate(integrity=audit, heartbeat_path=path, report_path=tmp_path / "no.json", now=NOW)
+    unknown = monitor.evaluate(
+        integrity=audit, heartbeat_path=path, report_path=tmp_path / "no.json", now=NOW
+    )
     assert unknown["operational_state"] == "UNKNOWN"
     path.write_text("{not json")
-    critical = monitor.evaluate(integrity=audit, heartbeat_path=path, report_path=tmp_path / "no.json", now=NOW)
+    critical = monitor.evaluate(
+        integrity=audit, heartbeat_path=path, report_path=tmp_path / "no.json", now=NOW
+    )
     assert critical["operational_state"] == "CRITICAL"
 
 
