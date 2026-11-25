@@ -96,7 +96,9 @@ def _write_heartbeat(
         "last_attempt_at": now,
         "last_result": result,
         "last_success_at": now if result == "SUCCESS" else old.get("last_success_at"),
-        "last_accumulator_state": report.get("state") if report is not None else old.get("last_accumulator_state"),
+        "last_accumulator_state": (
+            report.get("state") if report is not None else old.get("last_accumulator_state")
+        ),
         "last_error_code": error_code,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -156,7 +158,9 @@ def main() -> int:
                     requested_until=args.until,
                 )
                 _write_report(paths[4], report)
-                _write_heartbeat(paths[5], result="SUCCESS", mode="watch" if args.watch else "once", report=report)
+                _write_heartbeat(
+                    paths[5], result="SUCCESS", mode="watch" if args.watch else "once", report=report
+                )
                 LOGGER.info(
                     "Phase 5.7.3 %s: candidate_closed=%s baseline_closed=%s",
                     report["state"],
