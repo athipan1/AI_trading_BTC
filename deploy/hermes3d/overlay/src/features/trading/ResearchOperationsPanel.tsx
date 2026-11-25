@@ -14,6 +14,36 @@ type Counter = {
   required?: number | null;
 };
 
+type CandidateV2Health = {
+  operational_state?: string;
+  watcher_state?: string;
+  integrity_state?: string;
+  policy_name?: string;
+  source_accumulator_state?: string | null;
+  observed_at?: string;
+  last_success_at?: string | null;
+  heartbeat_age_seconds?: number | null;
+  market_data_lag_seconds?: number | null;
+  issues?: string[];
+  promotion_allowed?: boolean;
+  counts?: {
+    candidate_v2_closed?: number | null;
+    canonical_rule_based_closed?: number | null;
+  };
+  metrics?: {
+    candidate_v2?: {
+      expectancy_r?: number | null;
+      profit_factor?: number | null;
+      max_drawdown_r?: number | null;
+    };
+    baseline?: {
+      expectancy_r?: number | null;
+      profit_factor?: number | null;
+      max_drawdown_r?: number | null;
+    };
+  };
+};
+
 type MilestoneEntry = {
   milestone_signals?: number;
   observed_signals?: number;
@@ -35,6 +65,7 @@ type MilestoneEntry = {
 
 type ResearchOperations = {
   operational_state?: string;
+  candidate_v2?: CandidateV2Health;
   forward_oos?: {
     signals?: Counter;
     policy_selected_trades?: Counter;
@@ -103,6 +134,15 @@ type Labels = {
   yes: string;
   no: string;
   readOnly: string;
+  v1Tab: string;
+  v2Tab: string;
+  watcher: string;
+  heartbeat: string;
+  v2Closed: string;
+  baselineClosed: string;
+  lastObserved: string;
+  noPromotion: string;
+  alerts: string;
 };
 
 const LABELS: Record<OfficeLocale, Labels> = {
@@ -137,6 +177,15 @@ const LABELS: Record<OfficeLocale, Labels> = {
     yes: "ใช่",
     no: "ไม่",
     readOnly: "อ่านอย่างเดียว",
+    v1Tab: "OOS V1",
+    v2Tab: "Candidate V2",
+    watcher: "ตัวสะสม V2",
+    heartbeat: "Heartbeat",
+    v2Closed: "ปิดออเดอร์ V2",
+    baselineClosed: "ปิดออเดอร์ Baseline",
+    lastObserved: "ตรวจล่าสุด",
+    noPromotion: "ล็อก Promotion (Research only)",
+    alerts: "ข้อควรตรวจสอบ",
   },
   en: {
     title: "Research Operations",
@@ -169,6 +218,15 @@ const LABELS: Record<OfficeLocale, Labels> = {
     yes: "yes",
     no: "no",
     readOnly: "read only",
+    v1Tab: "OOS V1",
+    v2Tab: "Candidate V2",
+    watcher: "V2 watcher",
+    heartbeat: "Heartbeat",
+    v2Closed: "Candidate closed",
+    baselineClosed: "Baseline closed",
+    lastObserved: "Last audited",
+    noPromotion: "Promotion locked (research only)",
+    alerts: "Issues",
   },
 };
 
@@ -201,6 +259,7 @@ export function ResearchOperationsPanel() {
   const [status, setStatus] = useState<PanelStatus>("loading");
   const [locale, setLocale] = useState<OfficeLocale>("th");
   const [expanded, setExpanded] = useState(false);
+  const [researchTab, setResearchTab] = useState<"v1" | "v2">("v1");
 
   const refresh = useCallback(async () => {
     try {
@@ -272,6 +331,16 @@ export function ResearchOperationsPanel() {
         >
           {status === "error" ? <div className="text-red-200">{labels.unavailable}</div> : (
             <>
+              <div role="tablist" aria-label="Research version" className="mb-2 flex gap-1">
+                <button type="button" role="tab" aria-selected={researchTab === "v1"}
+                  className={`min-h-9 flex-1 rounded border px-2 ${researchTab === "v1" ? "border-cyan-300 text-cyan-100" : "border-slate-600 text-cyan-100/60"}`}
+                  onClick={() => setResearchTab("v1")}>{labels.v1Tab}</button>
+                <button type="button" role="tab" aria-selected={researchTab === "v2"}
+                  className={`min-h-9 flex-1 rounded border px-2 ${researchTab === "v2" ? "border-cyan-300 text-cyan-100" : "border-slate-600 text-cyan-100/60"}`}
+                  onClick={() => setResearchTab("v2")}>{labels.v2Tab}</button>
+              </div>
+              {researchTab === "v1" ? (
+              <>
               <section data-research-operations-summary>
                 <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
                   <span className="text-cyan-100/55">{labels.overall}</span><span className="font-semibold">{overall}</span>
@@ -340,6 +409,56 @@ export function ResearchOperationsPanel() {
                   <span className="text-cyan-100/55">{labels.lastAttempt}</span><span>{timestampText(operations?.scheduler?.last_attempt_at)}</span>
                 </div>
               </section>
+              </>
+              ) : (
+                <section data-research-candidate-v2 className="space-y-2" aria-label={labels.v2Tab}>
+                  <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2">
+                    <span className="text-cyan-100/55">{labels.overall}</span>
+                    <strong className="break-words">{operations?.candidate_v2?.operational_state ?? "UNKNOWN"}</strong>
+                    <span className="text-cyan-100/55">{labels.watcher}</span>
+                    <span>{operations?.candidate_v2?.watcher_state ?? "-"}</span>
+                    <span className="text-cyan-100/55">{labels.integrity}</span>
+                    <span>{operations?.candidate_v2?.integrity_state ?? "-"}</span>
+                    <span className="text-cyan-100/55">{labels.lastObserved}</span>
+                    <span className="break-words">{timestampText(operations?.candidate_v2?.observed_at)}</span>
+                    <span className="text-cyan-100/55">{labels.heartbeat}</span>
+                    <span>{operations?.candidate_v2?.heartbeat_age_seconds == null ? "-" : Math.round(operations.candidate_v2.heartbeat_age_seconds) + "s"}</span>
+                    <span className="text-cyan-100/55">Policy</span>
+                    <strong>{operations?.candidate_v2?.policy_name ?? "-"}</strong>
+                    <span className="text-cyan-100/55">Replay</span>
+                    <span className="break-words">{operations?.candidate_v2?.source_accumulator_state ?? "-"}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 border-t border-violet-300/20 pt-2">
+                    <div className="rounded border border-violet-300/20 p-2">
+                      <div className="text-cyan-100/55">{labels.v2Closed}</div>
+                      <strong className="text-sm">{operations?.candidate_v2?.counts?.candidate_v2_closed ?? 0}</strong>
+                    </div>
+                    <div className="rounded border border-violet-300/20 p-2">
+                      <div className="text-cyan-100/55">{labels.baselineClosed}</div>
+                      <strong className="text-sm">{operations?.candidate_v2?.counts?.canonical_rule_based_closed ?? 0}</strong>
+                    </div>
+                  </div>
+                  {(["candidate_v2", "baseline"] as const).map((name) => (
+                    <div key={name} className="rounded border border-violet-300/15 p-2">
+                      <div className="mb-1 font-medium">{name === "candidate_v2" ? labels.v2Tab : "Baseline"}</div>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div><div className="text-cyan-100/55">{labels.profitFactor}</div>{metricText(operations?.candidate_v2?.metrics?.[name]?.profit_factor)}</div>
+                        <div><div className="text-cyan-100/55">{labels.expectancy}</div>{metricText(operations?.candidate_v2?.metrics?.[name]?.expectancy_r)}</div>
+                        <div><div className="text-cyan-100/55">{labels.drawdown}</div>{metricText(operations?.candidate_v2?.metrics?.[name]?.max_drawdown_r)}</div>
+                      </div>
+                    </div>
+                  ))}
+                  {(operations?.candidate_v2?.issues?.length ?? 0) > 0 ? (
+                    <div className="border-t border-violet-300/20 pt-2">
+                      <strong>{labels.alerts}</strong>
+                      <ul className="mt-1 list-disc space-y-1 pl-4 break-words">
+                        {operations?.candidate_v2?.issues?.slice(0, 4).map((issue, index) => <li key={index}>{issue}</li>)}
+                      </ul>
+                    </div>
+                  ) : null}
+                  <div className="border-t border-violet-300/20 pt-2 text-amber-200">{labels.noPromotion}</div>
+                </section>
+              )}
             </>
           )}
         </div>
