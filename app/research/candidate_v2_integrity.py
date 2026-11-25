@@ -13,7 +13,6 @@ from typing import Any
 
 from app.research.candidate_v2_forward import CandidateV2ForwardAccumulator
 from app.research.candidate_v2_research import CandidateV2Research
-from app.research.historical_replay import HistoricalStrategyReplay
 from app.research.historical_store import HistoricalResearchStore
 
 
@@ -157,7 +156,10 @@ class CandidateV2IntegrityAuditor:
                 until = self._check_timestamp(last_until, "last_processed_until")
                 if until > now.replace(minute=0, second=0, microsecond=0):
                     raise ValueError("checkpoint points into unfinished H1")
-                if any(self._check_timestamp(t["closed_at"], "closed_at") > until for t in (*candidate, *baseline)):
+                if any(
+                    self._check_timestamp(t["closed_at"], "closed_at") > until
+                    for t in (*candidate, *baseline)
+                ):
                     raise ValueError("evidence extends beyond checkpoint H1 boundary")
                 if (checkpoint.get("candidate_trade_count") != len(candidate)
                     or checkpoint.get("baseline_trade_count") != len(baseline)):
