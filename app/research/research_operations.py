@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ class ResearchOperationsProjection:
         checkpoint_path: str | Path,
         scheduler_state_path: str | Path,
         milestone_history_path: str | Path | None = None,
+        candidate_v2_health_path: str | Path | None = None,
     ) -> None:
         self.promotion_observability = promotion_observability
         self.integrity_report_path = Path(integrity_report_path)
@@ -31,6 +33,9 @@ class ResearchOperationsProjection:
         self.scheduler_state_path = Path(scheduler_state_path)
         self.milestone_history_path = (
             Path(milestone_history_path) if milestone_history_path is not None else None
+        )
+        self.candidate_v2_health_path = (
+            Path(candidate_v2_health_path) if candidate_v2_health_path is not None else None
         )
 
     @staticmethod
@@ -231,6 +236,65 @@ class ResearchOperationsProjection:
             "artifact": self._artifact(self.scheduler_state_path, operational_state),
         }
 
+    def _candidate_v2_snapshot(self) -> dict[str, Any]:
+        """Independent V2 observer; never combine V2 health with V1 promotion status."""
+        path = self.candidate_v2_health_path
+        if path is None:
+            return {"operational_state": "NOT_CONFIGURED", "promotion_allowed": False}
+        payload, status, error = self._read_json_object(
+            path, expected_phase="5.7.4", expected_schema="candidate_v2_health_v1"
+        )
+        if payload is None:
+            return {"operational_state": status, "promotion_allowed": False,
+                    "artifact": self._artifact(path, status, error)}
+        if (payload.get("research_only") is not True
+            or payload.get("trade_execution") is not False
+            or payload.get("promotion_allowed") is not False
+            or payload.get("production_mutation") is not False):
+            return {"operational_state": "INVALID", "promotion_allowed": False,
+                    "artifact": self._artifact(path, "INVALID", "research isolation mismatch")}
+        observed = payload.get("observed_at")
+        try:
+            timestamp = datetime.fromisoformat(str(observed).replace("Z", "+00:00"))
+            if timestamp.tzinfo is None:
+                raise ValueError("naive observed_at")
+            age = (datetime.now(UTC) - timestamp.astimezone(UTC)).total_seconds()
+            if age < -120:
+                raise ValueError("future observer timestamp")
+        except (TypeError, ValueError):
+            return {"operational_state": "INVALID", "promotion_allowed": False,
+                    "artifact": self._artifact(path, "INVALID", "invalid observed_at")}
+        operational = str(payload.get("operational_state") or "UNKNOWN")
+        if operational not in {"HEALTHY", "WAITING", "WARNING", "CRITICAL", "UNKNOWN"}:
+            operational = "INVALID"
+        if age > 900:
+            operational = "STALE"
+        safe_counts = self._safe_dict(payload.get("counts"))
+        safe_metrics = self._safe_dict(payload.get("metrics"))
+        return {
+            "operational_state": operational,
+            "watcher_state": payload.get("watcher_state"),
+            "integrity_state": self._safe_dict(payload.get("integrity")).get("integrity_state"),
+            "policy_name": self._safe_dict(payload.get("integrity")).get("policy_name"),
+            "last_attempt_at": payload.get("last_attempt_at"),
+            "last_success_at": payload.get("last_success_at"),
+            "source_accumulator_state": payload.get("source_accumulator_state"),
+            "observed_at": observed,
+            "heartbeat_age_seconds": payload.get("heartbeat_age_seconds"),
+            "market_data_lag_seconds": payload.get("market_data_lag_seconds"),
+            "counts": {
+                "candidate_v2_closed": safe_counts.get("candidate_v2_closed"),
+                "canonical_rule_based_closed": safe_counts.get("canonical_rule_based_closed"),
+            },
+            "metrics": {
+                "candidate_v2": self._safe_dict(safe_metrics.get("candidate_v2")),
+                "baseline": self._safe_dict(safe_metrics.get("baseline")),
+            },
+            "issues": payload.get("issues", []) if isinstance(payload.get("issues"), list) else [],
+            "promotion_allowed": False,
+            "artifact": self._artifact(path, operational),
+        }
+
     @staticmethod
     def _overall_state(states: list[str]) -> str:
         if "INVALID" in states:
@@ -309,6 +373,7 @@ class ResearchOperationsProjection:
             "frozen_contract": promotion.get("frozen_contract"),
             "milestone_evidence": milestones,
             "scheduler": scheduler,
+            "candidate_v2": self._candidate_v2_snapshot(),
             "safety": {
                 "research_only": True,
                 "read_only": True,
