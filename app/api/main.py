@@ -58,6 +58,7 @@ research_operations = ResearchOperationsProjection(
     checkpoint_path=settings.research_forward_oos_checkpoint,
     milestone_history_path=settings.research_milestone_history,
     scheduler_state_path=settings.research_scheduler_state,
+    candidate_v2_health_path=settings.research_candidate_v2_health_report,
 )
 phase41_validation_positions = PositionStore(settings.phase41_validation_position_store)
 hermes3d_auto_state_paths = {
