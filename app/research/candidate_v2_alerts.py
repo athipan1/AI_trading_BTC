@@ -41,7 +41,10 @@ class CandidateV2AlertPolicy:
         next_state = {
             "last_notified_state": state if kind else prior,
             "last_notified_at": current.isoformat() if kind else last,
-            "recovery_checks": 0 if kind or state in {"WARNING", "CRITICAL", "UNKNOWN"} else int(previous.get("recovery_checks", 0)) + 1,
+            "recovery_checks": (
+                0 if kind or state in {"WARNING", "CRITICAL", "UNKNOWN"}
+                else int(previous.get("recovery_checks", 0)) + 1
+            ),
         }
         return kind, next_state
 
