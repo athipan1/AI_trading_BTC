@@ -55,7 +55,10 @@ def _read_state(path: Path) -> dict[str, Any] | None:
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     temporary.replace(path)
 
 
@@ -101,7 +104,11 @@ def run_once(args: argparse.Namespace, *, now: datetime | None = None) -> dict[s
         alert_path = Path(args.alert_state)
         previous_alert = _read_state(alert_path)
         kind, pending = CandidateV2AlertPolicy.decision(health, previous_alert, now=current)
-        if kind == "RECOVERY" and previous_alert is not None and int(previous_alert.get("recovery_checks", 0)) < 1:
+        if (
+            kind == "RECOVERY"
+            and previous_alert is not None
+            and int(previous_alert.get("recovery_checks", 0)) < 1
+        ):
             # Persist one good check but do not falsely mark LINE as delivered.
             preview = {**previous_alert, "recovery_checks": 1}
             _atomic_json(alert_path, preview)
