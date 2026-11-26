@@ -302,3 +302,22 @@ Hermes3D Research V1/V2 tabs. It **never** changes frozen V2 policies, V1
 promotion, evidence, or production execution.
 
 See [Phase 5.7.4 Termux/VPS runbook](docs/PHASE574_RELIABILITY.md).
+
+## Phase 5.7.5: isolated H1 execution realism stress study
+
+Compare unchanged canonical Triple EMA and the frozen Candidate V2 `confirmed`
+policy using an **independent conservative bar-based replay**, including
+intrabar SL/TP touches, stop-first H1 ambiguity, next-open gap stops, fees,
+slippage and optional *synthetic* futures funding sensitivity. The original
+Phase 5.7.3 evidence writer/replay and frozen policy remain untouched. Only
+already-seen historical discovery candles are accepted: **no forward OOS**
+is reused for tuning or this study. Reports are new `phase575_*.json` files,
+never appended to OOS stores.
+
+See [Phase 5.7.5 runbook](docs/PHASE575_EXECUTION_REALISM.md).
+
+```bash
+PYTHONPATH=. python scripts/run_phase575_execution_realism.py \
+  --since 2026-06-01 --until 2026-07-01 \
+  --report state/research/phase575_june2026_stress.json
+```
