@@ -82,3 +82,60 @@ def test_fixed_tp_sl_is_observe_only_and_does_not_advance_lifecycle(tmp_path) ->
     assert saved["status"] == "OPEN"
     assert saved["triggered_at"] is None
     assert saved["hit_price"] is None
+
+def test_dynamic_exit_without_fixed_tp_stays_open_above_stop(tmp_path) -> None:
+    store = PositionStore(tmp_path / "positions.json")
+    store.add_long_position(
+        order_id="dynamic-1",
+        symbol="BTC/USDT",
+        entry_price=50_000,
+        quantity=0.0002,
+        take_profit=None,
+        stop_loss=49_500,
+        strategy_id="triple_ema",
+        exit_mode="close_below_ema50",
+    )
+    notifier = FakeNotifier()
+
+    events = check_once(FakeBroker(), notifier, store)
+
+    saved = store.load()[0]
+    assert events == []
+    assert notifier.messages == []
+    assert saved["status"] == "OPEN"
+
+
+class StopHitBroker(FakeBroker):
+    def current_price(self, symbol: str) -> float:
+        assert symbol == "BTC/USDT"
+        return 49_000.0
+
+
+def test_dynamic_exit_without_fixed_tp_can_trigger_stop_and_notify(tmp_path) -> None:
+    store = PositionStore(tmp_path / "positions.json")
+    store.add_long_position(
+        order_id="dynamic-2",
+        symbol="BTC/USDT",
+        entry_price=50_000,
+        quantity=0.0002,
+        take_profit=None,
+        stop_loss=49_500,
+        strategy_id="triple_ema",
+        exit_mode="close_below_ema50",
+    )
+    notifier = FakeNotifier()
+
+    events = check_once(StopHitBroker(), notifier, store)
+
+    assert events == [
+        {
+            "order_id": "dynamic-2",
+            "symbol": "BTC/USDT",
+            "event": "SL_HIT",
+            "hit_price": 49_000.0,
+        }
+    ]
+    assert len(notifier.messages) == 1
+    assert "🛑 ถึง SL" in notifier.messages[0]
+    assert store.load()[0]["status"] == "SL_HIT"
+

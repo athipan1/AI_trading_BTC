@@ -49,12 +49,14 @@ def check_once(
             continue
         symbol = str(position["symbol"])
         price = prices.setdefault(symbol, broker.current_price(symbol))
-        take_profit = float(position["take_profit"])
-        stop_loss = float(position["stop_loss"])
+        take_profit_raw = position.get("take_profit")
+        stop_loss_raw = position.get("stop_loss")
+        take_profit = float(take_profit_raw) if take_profit_raw is not None else None
+        stop_loss = float(stop_loss_raw) if stop_loss_raw is not None else None
         event = None
-        if price >= take_profit:
+        if take_profit is not None and price >= take_profit:
             event = "TP_HIT"
-        elif price <= stop_loss:
+        elif stop_loss is not None and price <= stop_loss:
             event = "SL_HIT"
         if event:
             store.mark_triggered(str(position["order_id"]), event, price)
@@ -82,7 +84,11 @@ def check_once(
             entry_price=float(position["entry_price"]),
             hit_price=float(position["hit_price"]),
             lot=float(position["quantity"]),
-            take_profit=float(position["take_profit"]),
+            take_profit=(
+                float(position["take_profit"])
+                if position.get("take_profit") is not None
+                else None
+            ),
             stop_loss=float(position["stop_loss"]),
             binance_open_orders=int(snapshot["open_orders_count"]),
             tracked_positions=tracked_positions,
